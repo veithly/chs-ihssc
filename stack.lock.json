@@ -1,0 +1,86 @@
+{
+  "project_language": "zh",
+  "branch": "AI",
+  "frontend": "Next.js App Router + React + Radix Themes + Tailwind plumbing",
+  "storage": "SQLite or Postgres-compatible durable store for dataset releases, issues, approvals, agent runs, and replay timelines",
+  "real_data_source": "Synthetic/desensitized医保 dataset fixtures with source manifests and secure trusted data-space migration path",
+  "real_data_sources": [
+    {
+      "name": "desensitized_release_fixture",
+      "type": "database",
+      "url": "local-fixture://dataset-release/sample",
+      "evidence": "pitch/user_cases.md and future .hunter/agent-runs.json"
+    }
+  ],
+  "deployment": "local dev for G3, public deploy later via Cloudflare Pages or Vercel after reality review",
+  "deploy": {
+    "target": "Cloudflare Pages or Vercel",
+    "reason": "simple public judge URL for a Next.js product surface"
+  },
+  "required_env": [
+    {
+      "name": "OPENAI_API_KEY",
+      "required": true,
+      "status": "configured_or_missing_after_discovery",
+      "key_url": "https://platform.openai.com/api-keys"
+    },
+    {
+      "name": "OPENAI_BASE_URL",
+      "required": true,
+      "status": "configured_or_missing_after_discovery",
+      "key_url": "https://platform.openai.com/docs/api-reference"
+    },
+    {
+      "name": "OPENAI_MODEL",
+      "required": true,
+      "status": "configured_or_missing_after_discovery",
+      "key_url": "https://platform.openai.com/docs/models"
+    }
+  ],
+  "credential_discovery": {
+    "checked_sources": [
+      ".env.local",
+      ".dev.vars",
+      ".env",
+      "$HOME/user_key.txt",
+      "$HOME/use_key.txt"
+    ],
+    "apply_command": "node /Users/rick/Documents/MySkill/hackathonhunter-skill/scripts/apply_use_key_env.mjs --dry-run",
+    "result": "pending_for_G3",
+    "secret_values_printed": false
+  },
+  "live_provider_smoke": {
+    "command": "npm run smoke:agent",
+    "evidence": ".hunter/agent-runs.json with two distinct live inputs and outputs during G3"
+  },
+  "wallet_required": false,
+  "wallet_path": "",
+  "no_wallet_exception": "This is a server-issued医保 workflow state product, not Web3/ZK/chain. The user does not own, mint, trade, pay, attest, or sign an onchain result.",
+  "demo_signer_policy": "not applicable",
+  "sponsor_technology_not_applicable_reason": "The contest sponsor primitive is医保 trusted data and Agent orchestration rather than a named SDK; domain data/rules are core in the product state loop.",
+  "visual_style_lane": "regulated-product-release-gate",
+  "primary_ui_library": "Radix Themes",
+  "supporting_ui_library": "none, domain components are app-owned",
+  "official_docs_checked": "https://www.radix-ui.com/themes/docs/overview",
+  "install_commands": "npm install @radix-ui/themes @radix-ui/react-icons",
+  "tailwind_rejection": "Tailwind-only or default shadcn would look like a generic AI/admin shell; use app-owned release-state components.",
+  "hero_composition": "single-row-release-gate",
+  "visual_differentiation_note": "trusted data release workstation, not fraud dashboard or lineage wall",
+  "forbidden_lookalikes": "AI purple landing page, command center, audit console, permission matrix, data-quality score dashboard",
+  "qr_mobile_access_plan": "QR opens /release/sample directly",
+  "mobile_primary_flow": "mutation chips and CTA first, proof bottom sheet after action",
+  "desktop_parity_plan": "desktop and mobile keep same state labels, replay, and proof links",
+  "non_tailwind_visual_signature": "release-state rail, mutation chips, consequence preview strip, replay split",
+  "delivery_mode": "live-pitch",
+  "delivery_mode_reason": "Final contest requires live system operation and defense, so materials should support a live pitch rather than only a combined video.",
+  "video_composer": "hyperframes",
+  "video_target_duration_s": 210,
+  "why_this_stack": "Next.js gives server-side provider boundaries, Radix gives accessible product controls, and durable storage supports state-changing Agent evidence.",
+  "cut_if_time_runs_out": [
+    "national trusted data-space adapter",
+    "all four track modules",
+    "batch analytics",
+    "rich lineage graph",
+    "advanced admin"
+  ]
+}

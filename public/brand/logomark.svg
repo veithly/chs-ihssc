@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="医保可信数据通行 Agent logomark">
+  <rect width="512" height="512" rx="64" fill="#0f4c81"/>
+  <path d="M128 168h256v56H128zM128 256h168v56H128zM128 344h256v56H128z" fill="#eaf6ff"/>
+  <path d="M344 246l50 50 86-96" fill="none" stroke="#7ee081" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

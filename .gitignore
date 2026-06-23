@@ -1,0 +1,46 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# runtime data (durable store + generated runtime evidence)
+/data/*.db
+/data/*.db-*
+/runtime/reports/*.json
+
+# secrets / env (credential discovery output)
+.env
+.env.local
+.env*.local
+.dev.vars
+
+# internal hackathon-workflow artifacts (not for public repo)
+/.hunter/
+/pitch/
+# public-safe evidence is mirrored into docs/evidence/ and docs/screenshots/
+!/docs/
+
+# stray credential files (defense in depth; real keys live in $HOME)
+user_key.txt
+use_key.txt
+
+# os
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.idea
+.vscode

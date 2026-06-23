@@ -1,0 +1,98 @@
+[
+  {
+    "run_id": "RUN-20260623-76ffc9",
+    "release_id": "REL-2026-0623-07",
+    "input": "变更类型=错误编码；catalog_code=BAD-X999",
+    "mutation_type": "wrong_code",
+    "result_state": "隔离",
+    "status": "success",
+    "plan": {
+      "issue_focus": "code_dictionary",
+      "ordered_tools": [
+        "schema_mapper",
+        "code_dictionary_validator",
+        "tokenized_identity_matcher",
+        "access_policy_evaluator",
+        "anomaly_profiler"
+      ],
+      "rationale": "先校验行字段是否符合发布schema，再校验病种编码是否命中医保目录字典及是否存在高置信纠错别名，同时校验人员标识唯一性、访问策略合规性，最后校验服务日期时序异常，若编码未命中且无高置信纠错则推进至隔离",
+      "expected_state": "隔离",
+      "source": "live-provider"
+    },
+    "tools_called": [
+      "schema_mapper",
+      "code_dictionary_validator",
+      "tokenized_identity_matcher",
+      "access_policy_evaluator",
+      "anomaly_profiler",
+      "quarantine_writer",
+      "replay_builder"
+    ],
+    "provider_meta": {
+      "source": "live-provider",
+      "model": "step-3.7-flash",
+      "baseUrlHost": "api.stepfun.com",
+      "latency_ms": 7681,
+      "prompt_tokens": 758,
+      "completion_tokens": 1300,
+      "finish_reason": "stop"
+    },
+    "output_hash": "abb6332e5cf13d6b",
+    "duration_ms": 7696,
+    "evidence": {
+      "issues": 1,
+      "corrections": 0,
+      "quarantine": 1,
+      "approvals": 0,
+      "replay_events": 5
+    }
+  },
+  {
+    "run_id": "RUN-20260623-9ef037",
+    "release_id": "REL-2026-0623-07",
+    "input": "变更类型=权限拒绝；role=外部分析员, purpose=对外共享",
+    "mutation_type": "access_denied",
+    "result_state": "需审批",
+    "status": "success",
+    "plan": {
+      "issue_focus": "none",
+      "ordered_tools": [
+        "schema_mapper",
+        "code_dictionary_validator",
+        "tokenized_identity_matcher",
+        "access_policy_evaluator",
+        "anomaly_profiler"
+      ],
+      "rationale": "先校验行字段符合发布schema，再依次校验病种编码目录命中、身份标识唯一性、访问策略合规性及日期时序异常，覆盖全部发布规则要求",
+      "expected_state": "需审批",
+      "source": "live-provider"
+    },
+    "tools_called": [
+      "schema_mapper",
+      "code_dictionary_validator",
+      "tokenized_identity_matcher",
+      "access_policy_evaluator",
+      "anomaly_profiler",
+      "approval_router",
+      "replay_builder"
+    ],
+    "provider_meta": {
+      "source": "live-provider",
+      "model": "step-3.7-flash",
+      "baseUrlHost": "api.stepfun.com",
+      "latency_ms": 14257,
+      "prompt_tokens": 757,
+      "completion_tokens": 2155,
+      "finish_reason": "stop"
+    },
+    "output_hash": "566fd47a2d0430f2",
+    "duration_ms": 14289,
+    "evidence": {
+      "issues": 1,
+      "corrections": 0,
+      "quarantine": 0,
+      "approvals": 1,
+      "replay_events": 5
+    }
+  }
+]

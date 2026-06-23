@@ -1,0 +1,73 @@
+{
+  "generated_at": "2026-06-23T09:32:22.989Z",
+  "base_url": "http://127.0.0.1:3000",
+  "smokeA": {
+    "input": {
+      "mutationType": "wrong_code",
+      "override": {
+        "catalog_code": "BAD-X999"
+      }
+    },
+    "result_state": "隔离",
+    "plan_focus": "code_dictionary",
+    "tools": [
+      "schema_mapper",
+      "code_dictionary_validator",
+      "tokenized_identity_matcher",
+      "access_policy_evaluator",
+      "anomaly_profiler",
+      "quarantine_writer",
+      "replay_builder"
+    ],
+    "provider_meta": {
+      "source": "live-provider",
+      "model": "step-3.7-flash",
+      "baseUrlHost": "api.stepfun.com",
+      "latency_ms": 7681,
+      "prompt_tokens": 758,
+      "completion_tokens": 1300,
+      "finish_reason": "stop"
+    },
+    "output_hash": "abb6332e5cf13d6b"
+  },
+  "smokeB": {
+    "input": {
+      "mutationType": "access_denied"
+    },
+    "result_state": "需审批",
+    "plan_focus": "none",
+    "tools": [
+      "schema_mapper",
+      "code_dictionary_validator",
+      "tokenized_identity_matcher",
+      "access_policy_evaluator",
+      "anomaly_profiler",
+      "approval_router",
+      "replay_builder"
+    ],
+    "provider_meta": {
+      "source": "live-provider",
+      "model": "step-3.7-flash",
+      "baseUrlHost": "api.stepfun.com",
+      "latency_ms": 14257,
+      "prompt_tokens": 757,
+      "completion_tokens": 2155,
+      "finish_reason": "stop"
+    },
+    "output_hash": "566fd47a2d0430f2"
+  },
+  "assertions": {
+    "a_success": true,
+    "b_success": true,
+    "a_live_provider": true,
+    "b_live_provider": true,
+    "different_output_hash": true,
+    "different_result_state": true,
+    "different_writer_tools": true,
+    "a_state_isolated_or_correctable": true,
+    "b_state_needs_approval": true,
+    "b_has_pending_approval": true,
+    "at_least_3_tools": true
+  },
+  "passed": true
+}

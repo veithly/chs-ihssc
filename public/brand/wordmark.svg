@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="180" viewBox="0 0 960 180" role="img" aria-label="医保可信数据通行 Agent">
+  <rect width="960" height="180" rx="24" fill="#f7fbff"/>
+  <text x="40" y="112" font-family="Noto Sans SC, system-ui, sans-serif" font-size="52" font-weight="700" fill="#14324a">医保可信数据通行 Agent</text>
+  <text x="42" y="148" font-family="Noto Sans SC, system-ui, sans-serif" font-size="20" fill="#42657d">Release gate for trusted healthcare-security data</text>
+</svg>
