@@ -24,9 +24,21 @@ next-env.d.ts
 
 # internal hackathon-workflow artifacts (not for public repo)
 /.hunter/
+/.impeccable/
 /pitch/
-# public-safe evidence is mirrored into docs/evidence/ and docs/screenshots/
-!/docs/
+# media build scratch (ppt-master project + venv, hyperframes workspace)
+/.ppt-build/
+/.video-build/
+# typescript incremental build info
+tsconfig.tsbuildinfo
+
+# generated media / evidence / deck / posters / video scratch (not source code)
+/docs/evidence/
+/docs/deck/
+/docs/posters/
+/docs/screenshots/
+/docs/video/
+/docs/brand/
 
 # stray credential files (defense in depth; real keys live in $HOME)
 user_key.txt

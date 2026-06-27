@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Reseed synthetic/desensitized fixtures and write .hunter/seed-manifest.json.
+// Reseed synthetic price-governance fixtures and write .hunter/seed-manifest.json.
 // Prefers the running dev server's /api/admin/reseed; otherwise wipes the db file.
 
 import { writeFileSync, rmSync, mkdirSync, existsSync } from "node:fs";
@@ -19,7 +19,7 @@ try {
   }
 } catch {
   console.log("[seed] dev server not reachable; wiping local db file as fallback.");
-  for (const f of ["release-gate.db", "release-gate.db-wal", "release-gate.db-shm"]) {
+  for (const f of ["price-governance.db", "price-governance.db-wal", "price-governance.db-shm"]) {
     const p = join(PROJECT, "data", f);
     if (existsSync(p)) rmSync(p);
   }
@@ -27,15 +27,15 @@ try {
 
 const manifest = {
   source: "scripts/seed_demo.mjs -> POST /api/admin/reseed (src/lib/seed.ts)",
-  storage: "node:sqlite at data/release-gate.db",
-  fixtures: "src/lib/fixtures.ts (synthetic/desensitized; no real sensitive 医保 data)",
+  storage: "node:sqlite at data/price-governance.db",
+  fixtures: "src/lib/fixtures.ts (synthetic medical price records; no real sensitive 医保 data)",
   reset_command: "npm run seed",
   releases: summary?.releaseIds ?? ["REL-2026-0623-07", "REL-SAMPLE-01"],
   generated_records: summary?.rows ?? 12,
   real_vs_sample: {
     real: "durable SQLite rows, agent runs, replay timelines, approvals (all genuinely persisted)",
     sample:
-      "the dataset rows themselves are fabricated synthetic medical-insurance records, labeled 合成脱敏数据, never claimed as traction or production data",
+      "the price rows themselves are fabricated synthetic medical price records, never claimed as traction or production data",
   },
   generated_at: summary?.generatedAt ?? new Date().toISOString(),
 };

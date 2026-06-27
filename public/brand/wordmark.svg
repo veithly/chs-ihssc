@@ -1,5 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="180" viewBox="0 0 960 180" role="img" aria-label="医保可信数据通行 Agent">
-  <rect width="960" height="180" rx="24" fill="#f7fbff"/>
-  <text x="40" y="112" font-family="Noto Sans SC, system-ui, sans-serif" font-size="52" font-weight="700" fill="#14324a">医保可信数据通行 Agent</text>
-  <text x="42" y="148" font-family="Noto Sans SC, system-ui, sans-serif" font-size="20" fill="#42657d">Release gate for trusted healthcare-security data</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="220" viewBox="0 0 1160 220" role="img" aria-label="价序 wordmark">
+  <g transform="translate(28 28) scale(.32)">
+    <rect width="512" height="512" rx="96" fill="#f6fafc"/>
+    <circle cx="256" cy="256" r="172" fill="#ffffff" stroke="#dce7f2" stroke-width="10"/>
+    <path d="M256 84a172 172 0 0 1 155 246" fill="none" stroke="#1f6feb" stroke-width="38" stroke-linecap="round"/>
+    <path d="M105 303a172 172 0 0 0 193 124" fill="none" stroke="#142333" stroke-width="38" stroke-linecap="round" opacity=".92"/>
+    <path d="M158 208h118M158 260h164M158 312h92" fill="none" stroke="#142333" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="360" cy="316" r="41" fill="#1f9d57"/>
+    <path d="M341 316l14 14 28-35" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="256" cy="84" r="17" fill="#142333"/>
+  </g>
+  <text x="222" y="96" font-family="PingFang SC, Microsoft YaHei, Hiragino Sans GB, sans-serif" font-size="64" font-weight="850" fill="#142333">价序</text>
+  <text x="224" y="142" font-family="PingFang SC, Microsoft YaHei, Hiragino Sans GB, sans-serif" font-size="23" font-weight="500" fill="#536477">把价格线索排成今天的处置顺序</text>
+  <path d="M224 166h214" stroke="#1f6feb" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="460" cy="166" r="7" fill="#1f9d57"/>
 </svg>

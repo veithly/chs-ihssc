@@ -7,16 +7,16 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   ),
-  title: "医保可信数据通行 Agent",
+  title: "价序",
   description:
-    "弄脏一行医保数据，看 Agent 决定这批数据能否通行。面向医保数据中心 / 可信数据空间运营人员的发布通行工作台。",
-  applicationName: "医保可信数据通行 Agent",
+    "面向医保价格招采与价格监测人员的对话式工作台：上传表格或连接数据源，直接交代价格治理任务。",
+  applicationName: "价序",
   icons: {
     icon: "/brand/logomark.svg",
   },
   openGraph: {
-    title: "医保可信数据通行 Agent",
-    description: "弄脏一行医保数据，看 Agent 决定这批数据能否通行。",
+    title: "价序",
+    description: "把表格或数据源交给价序，直接说你要完成的价格治理工作。",
     type: "website",
   },
 };
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#1f6feb",
+  themeColor: "#0f1623",
 };
 
 export default function RootLayout({
@@ -36,7 +36,7 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <body>
         <Theme
-          accentColor="blue"
+          accentColor="indigo"
           grayColor="slate"
           radius="medium"
           scaling="100%"

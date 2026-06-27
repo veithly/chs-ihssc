@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Two required live smokes (PRD 12.2). Runs against the dev server so the real
-// server-side provider path executes. Saves evidence and asserts the outputs
-// differ in plan / tools / approval boundary / release state / output hash.
+// Workspace smoke: reset data -> attach demo source -> run built-in prompt with
+// live provider -> follow up -> verify durable workspace objects and reopen.
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -9,127 +8,166 @@ import { join } from "node:path";
 const PORT = process.env.HUNTER_DEV_PORT || "3000";
 const BASE = process.env.DEMO_URL?.replace(/\/$/, "") || `http://127.0.0.1:${PORT}`;
 const PROJECT = process.cwd();
-const RELEASE = "REL-2026-0623-07";
 
-async function post(path, body) {
+async function post(path, body = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json();
-}
-async function get(path) {
-  const res = await fetch(`${BASE}${path}`);
-  return res.json();
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`${path} ${res.status}: ${JSON.stringify(json)}`);
+  }
+  return json;
 }
 
-async function runSmoke(name, payload) {
-  console.log(`\n[smoke ${name}] ${JSON.stringify(payload)}`);
-  const result = await post("/api/agent/release-gate", payload);
-  if (!result.runId) throw new Error(`smoke ${name} did not return runId: ${JSON.stringify(result)}`);
-  const detail = await get(`/api/run/${result.runId}`);
-  const run = detail.run;
-  console.log(
-    `  -> state=${run.result_state} status=${run.status} focus=${run.plan.issue_focus} ` +
-      `tools=[${run.tools.map((t) => t.tool).join(",")}] hash=${run.output_hash} ` +
-      `provider=${run.provider_meta.source}/${run.provider_meta.model ?? "-"} (${run.provider_meta.latency_ms ?? "-"}ms)`,
-  );
-  return { result, detail };
+async function get(path) {
+  const res = await fetch(`${BASE}${path}`);
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`${path} ${res.status}: ${JSON.stringify(json)}`);
+  }
+  return json;
+}
+
+function countLatest(snapshot, key, runId) {
+  return (snapshot[key] || []).filter((x) => x.run_id === runId).length;
 }
 
 const main = async () => {
-  // clean slate
   await post("/api/admin/reseed", {});
 
-  const A = await runSmoke("A wrong-code(BAD-X999)", {
-    releaseId: RELEASE,
-    mutationType: "wrong_code",
-    override: { catalog_code: "BAD-X999" },
+  console.log("\n[smoke] attach demo source");
+  const source = await post("/api/workspace/source", {
+    kind: "demo",
+    sourceId: "demo-price-sheet",
   });
-  const B = await runSmoke("B access-denied(外部分析员/对外共享)", {
-    releaseId: RELEASE,
-    mutationType: "access_denied",
+  const threadId = source.snapshot.thread.id;
+  const datasetId = source.snapshot.dataset.id;
+  console.log(`  -> thread=${threadId} dataset=${datasetId} rows=${source.snapshot.dataset.row_count}`);
+
+  console.log("\n[smoke] run built-in prompt");
+  const first = await post("/api/workspace/run", {
+    threadId,
+    promptKey: "repair_price_batch",
+    instruction:
+      "请核完并修复这批价格数据。能确定的字段和单位先修复；拿不准的问我；可以处置的生成机构核实口径和流程任务。",
+  });
+  if (!first.runId) throw new Error(`first run missing runId: ${JSON.stringify(first)}`);
+  const firstSnapshot = first.snapshot;
+  const providerStatus = firstSnapshot.thread.provider_status;
+  console.log(
+    `  -> run=${first.runId} ok=${first.ok} state=${first.state} provider=${providerStatus} hash=${first.output_hash}`,
+  );
+
+  console.log("\n[smoke] follow-up instruction changes workflow");
+  const follow = await post("/api/workspace/run", {
+    threadId,
+    instruction: "把重点机构放前面，缺包装单位的先转数据治理确认。",
+  });
+  if (!follow.runId) throw new Error(`follow-up run missing runId: ${JSON.stringify(follow)}`);
+  const followSnapshot = follow.snapshot;
+  console.log(`  -> run=${follow.runId} state=${follow.state} hash=${follow.output_hash}`);
+
+  const reopened = await get(`/api/workspace/threads/${threadId}`);
+
+  console.log("\n[smoke] upload CSV context");
+  const upload = await post("/api/workspace/source", {
+    kind: "upload",
+    fileName: "smoke-price.csv",
+    title: "烟测上传价格表",
+    csv:
+      "医保项目编码,药品/耗材名称,价格日期,采购渠道,地区,机构执行价,机构名称\n" +
+      "YP-AXL-O01,阿莫西林胶囊 0.25g*24粒,2026-06-22,省级挂网,上海市,9.20,市人民医院\n" +
+      "HC-STN-901,冠脉药物洗脱支架,2026-06-22,集采中选-省平台,上海市,660.00,省立医院\n",
   });
 
-  const a = A.detail.run;
-  const b = B.detail.run;
-  const aTools = a.tools.map((t) => t.tool);
-  const bTools = b.tools.map((t) => t.tool);
+  const firstTasks = firstSnapshot.workflowTasks || [];
+  const followTasks = followSnapshot.workflowTasks || [];
+  const changedTasks = followTasks.filter(
+    (t) => t.task_type === "数据治理确认" || t.priority === "high",
+  );
+  const firstRunEvents = (firstSnapshot.runEvents || []).filter((e) => e.run_id === first.runId);
+  const followRunEvents = (followSnapshot.runEvents || []).filter((e) => e.run_id === follow.runId);
 
   const assertions = {
-    a_success: a.status === "success",
-    b_success: b.status === "success",
-    a_live_provider: a.provider_meta.source === "live-provider",
-    b_live_provider: b.provider_meta.source === "live-provider",
-    different_output_hash: a.output_hash !== b.output_hash,
-    different_result_state: a.result_state !== b.result_state,
-    different_writer_tools:
-      aTools.includes("quarantine_writer") && bTools.includes("approval_router"),
-    a_state_isolated_or_correctable: a.result_state === "隔离" || a.result_state === "纠错候选",
-    b_state_needs_approval: b.result_state === "需审批",
-    b_has_pending_approval: B.detail.approvals.some((x) => x.status === "pending"),
-    at_least_3_tools: aTools.length >= 3 && bTools.length >= 3,
+    demo_source_attached: Boolean(source.snapshot.thread && source.snapshot.dataset?.row_count >= 8),
+    csv_upload_attached: Boolean(upload.snapshot.thread && upload.snapshot.dataset?.row_count === 2),
+    first_run_success: first.ok === true && first.state,
+    live_provider: firstSnapshot.thread.provider_status === "live-provider",
+    persisted_field_mapping: countLatest(firstSnapshot, "fieldMappings", first.runId) >= 6,
+    persisted_repair_patch: countLatest(firstSnapshot, "repairPatches", first.runId) >= 1,
+    persisted_match_group: countLatest(firstSnapshot, "matchGroups", first.runId) >= 2,
+    persisted_workflow_tasks: firstTasks.length >= 2,
+    persisted_drafts: countLatest(firstSnapshot, "institutionDrafts", first.runId) >= 1,
+    needs_user_question: firstSnapshot.thread.state === "needs_user",
+    followup_success: follow.ok === true && Boolean(follow.runId),
+    followup_changed_tasks: changedTasks.length >= 1,
+    different_output_hash: first.output_hash !== follow.output_hash,
+    reopen_thread: reopened.snapshot.thread.id === threadId && reopened.snapshot.messages.length >= 4,
+    run_events_saved: firstRunEvents.length >= 4 && followRunEvents.length >= 4,
   };
 
   const passed = Object.values(assertions).every(Boolean);
-
-  const agentRuns = [A, B].map(({ detail }) => ({
-    run_id: detail.run.id,
-    release_id: detail.run.release_id,
-    input: detail.run.input_summary,
-    mutation_type: detail.run.mutation_type,
-    result_state: detail.run.result_state,
-    status: detail.run.status,
-    plan: detail.run.plan,
-    tools_called: detail.run.tools.map((t) => t.tool),
-    provider_meta: detail.run.provider_meta,
-    output_hash: detail.run.output_hash,
-    duration_ms: detail.run.duration_ms,
-    evidence: {
-      issues: detail.issues.length,
-      corrections: detail.corrections.length,
-      quarantine: detail.quarantine.length,
-      approvals: detail.approvals.length,
-      replay_events: detail.replay.length,
-    },
-  }));
+  const passCount = Object.values(assertions).filter(Boolean).length;
+  const total = Object.values(assertions).length;
 
   mkdirSync(join(PROJECT, ".hunter"), { recursive: true });
-  writeFileSync(join(PROJECT, ".hunter", "agent-runs.json"), JSON.stringify(agentRuns, null, 2));
+  const evidence = {
+    generated_at: new Date().toISOString(),
+    base_url: BASE,
+    mode: "conversation-first price-governance workspace",
+    source: {
+      thread_id: threadId,
+      dataset_id: datasetId,
+      rows: source.snapshot.dataset.row_count,
+    },
+    runs: [
+      {
+        thread_id: threadId,
+        run_id: first.runId,
+        instruction: "核完并修复这批价格数据",
+        provider_status: firstSnapshot.thread.provider_status,
+        output_hash: first.output_hash,
+        field_mappings: countLatest(firstSnapshot, "fieldMappings", first.runId),
+        repair_patches: countLatest(firstSnapshot, "repairPatches", first.runId),
+        match_groups: countLatest(firstSnapshot, "matchGroups", first.runId),
+        workflow_tasks: firstTasks.length,
+        drafts: countLatest(firstSnapshot, "institutionDrafts", first.runId),
+      },
+      {
+        thread_id: threadId,
+        run_id: follow.runId,
+        instruction: "重点机构优先，缺包装单位先转数据治理确认",
+        provider_status: followSnapshot.thread.provider_status,
+        output_hash: follow.output_hash,
+        changed_tasks: changedTasks.length,
+        workflow_tasks: followTasks.length,
+      },
+    ],
+    upload: {
+      thread_id: upload.snapshot.thread.id,
+      rows: upload.snapshot.dataset.row_count,
+    },
+    assertions,
+    pass_count: passCount,
+    total,
+    passed,
+  };
+
+  writeFileSync(
+    join(PROJECT, ".hunter", "agent-runs.json"),
+    JSON.stringify(evidence.runs, null, 2),
+  );
   writeFileSync(
     join(PROJECT, ".hunter", "live-provider-smoke.json"),
-    JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        base_url: BASE,
-        smokeA: {
-          input: { mutationType: "wrong_code", override: { catalog_code: "BAD-X999" } },
-          result_state: a.result_state,
-          plan_focus: a.plan.issue_focus,
-          tools: aTools,
-          provider_meta: a.provider_meta,
-          output_hash: a.output_hash,
-        },
-        smokeB: {
-          input: { mutationType: "access_denied" },
-          result_state: b.result_state,
-          plan_focus: b.plan.issue_focus,
-          tools: bTools,
-          provider_meta: b.provider_meta,
-          output_hash: b.output_hash,
-        },
-        assertions,
-        passed,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(evidence, null, 2),
   );
 
   console.log("\n[assertions]");
   for (const [k, v] of Object.entries(assertions)) console.log(`  ${v ? "PASS" : "FAIL"}  ${k}`);
-  console.log(`\n[smoke] ${passed ? "ALL PASS" : "FAILED"} — evidence in .hunter/agent-runs.json + .hunter/live-provider-smoke.json`);
+  console.log(`\n[smoke] ${passed ? "ALL PASS" : "FAILED"} ${passCount}/${total}`);
   process.exit(passed ? 0 : 1);
 };
 

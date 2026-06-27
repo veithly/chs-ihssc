@@ -2,12 +2,12 @@ import { Badge } from "@radix-ui/themes";
 import type { ReleaseState } from "@/lib/types";
 
 const COLOR: Record<ReleaseState, React.ComponentProps<typeof Badge>["color"]> = {
-  待发布: "amber",
-  检查中: "blue",
+  待治理: "amber",
+  监测中: "blue",
   纠错候选: "violet",
-  隔离: "red",
-  可发布: "green",
-  需审批: "orange",
+  异常处置: "red",
+  可落地: "green",
+  需核验: "orange",
   检查失败: "gray",
 };
 

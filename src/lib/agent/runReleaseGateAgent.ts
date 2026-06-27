@@ -5,22 +5,19 @@ import {
   getAccessSnapshot,
   getManifest,
   getRelease,
-  getRow,
   getRows,
   updateReleaseState,
 } from "../repo";
 import { generateAgentPlan } from "../provider";
 import {
-  accessPolicyEvaluator,
-  anomalyProfiler,
-  codeDictionaryValidator,
-  schemaMapper,
-  tokenizedIdentityMatcher,
+  VALIDATORS,
+  aggregateState,
+  classifyRow,
   type CandidateRow,
 } from "./tools";
 import type {
   AgentPlan,
-  MutationType,
+  BatchStats,
   ReleaseState,
   ReplayEvent,
   RunStatus,
@@ -29,18 +26,6 @@ import type {
 
 export interface RunInput {
   releaseId: string;
-  rowId?: string;
-  mutationType: MutationType;
-  override?: Partial<
-    Pick<
-      CandidateRow,
-      | "catalog_code"
-      | "service_date"
-      | "person_token"
-      | "requester_role"
-      | "purpose"
-    >
-  >;
 }
 
 export interface RunResult {
@@ -54,44 +39,7 @@ export interface RunResult {
   output_hash?: string;
 }
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function applyMutation(
-  base: CandidateRow,
-  mutationType: MutationType,
-  releaseDate: string,
-  override?: RunInput["override"],
-): { candidate: CandidateRow; summary: string } {
-  const candidate: CandidateRow = { ...base };
-  let summary = "";
-  switch (mutationType) {
-    case "wrong_code":
-      candidate.catalog_code = override?.catalog_code ?? "I1O";
-      summary = `变更类型=错误编码；catalog_code=${candidate.catalog_code}`;
-      break;
-    case "future_date":
-      candidate.service_date = override?.service_date ?? addDays(releaseDate, 7);
-      summary = `变更类型=未来日期；service_date=${candidate.service_date}`;
-      break;
-    case "identity_conflict":
-      candidate.person_token =
-        override?.person_token ?? base.person_token.slice(0, 6) + "*******0001";
-      summary = `变更类型=身份冲突；person_token=${candidate.person_token}`;
-      break;
-    case "access_denied":
-      candidate.requester_role = override?.requester_role ?? "外部分析员";
-      candidate.purpose = override?.purpose ?? "对外共享";
-      summary = `变更类型=权限拒绝；role=${candidate.requester_role}, purpose=${candidate.purpose}`;
-      break;
-    default:
-      summary = "变更类型=无（基线校验）";
-  }
-  return { candidate, summary };
-}
+const SCAN_KIND = "batch_scan";
 
 export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   const db = getDb();
@@ -108,46 +56,37 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
       state: "检查失败",
       status: "failed",
       error_category: "release_not_found",
-      message: "未找到该发布批次。",
+      message: "未找到该价格批次。",
     };
   }
 
   const beforeState = release.state;
   const rows = getRows(release.id);
-  const baseRow =
-    (input.rowId ? getRow(input.rowId) : null) ??
-    rows.find((r) => r.row_index === 2) ??
-    rows[0];
-  if (!baseRow) {
+  if (rows.length === 0) {
     return {
       ok: false,
       runId: null,
       releaseId: release.id,
       state: "检查失败",
       status: "failed",
-      error_category: "row_not_found",
-      message: "该批次没有可校验的数据行。",
+      error_category: "empty_batch",
+      message: "该批次没有可监测的价格行。",
     };
   }
 
   const manifest = getManifest(release.id);
   const accessSnapshot = getAccessSnapshot(release.id);
 
-  const { candidate, summary } = applyMutation(
-    {
-      person_token: baseRow.person_token,
-      catalog_code: baseRow.catalog_code,
-      service_date: baseRow.service_date,
-      access_policy: baseRow.access_policy,
-      requester_role: baseRow.requester_role,
-      purpose: baseRow.purpose,
-    },
-    input.mutationType,
-    release.release_date,
-    input.override,
-  );
-
-  // ---- Observe ----
+  // ---- Observe (whole batch) ----
+  const sample = rows.slice(0, 12).map((r) => ({
+    row_index: r.row_index,
+    item_code: r.item_code,
+    item_name: r.item_name,
+    price_date: r.price_date,
+    procurement_channel: r.procurement_channel,
+    region: r.region,
+    unit_price: r.unit_price,
+  }));
   const observation = {
     release: {
       id: release.id,
@@ -155,15 +94,17 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
       release_date: release.release_date,
       record_count: release.record_count,
     },
-    selected_row: candidate,
+    scanned_rows: rows.length,
+    sample_rows: sample,
     schema_version: manifest?.schema_version,
     code_dictionary_version: manifest?.code_dictionary_version,
-    access_policy_version: manifest?.access_policy_version,
+    procurement_channel_version: manifest?.procurement_channel_version,
     release_rules: [
-      "服务日期不得晚于发布日",
-      "病种编码必须命中医保目录字典",
-      "人员标识必须唯一命中身份注册表",
-      "访问角色与用途必须满足访问策略",
+      "价格日期不得晚于批次监测日",
+      "医保项目编码必须命中价格目录，别名编码进入纠错候选",
+      "单价不得超过最高有效价或集采中选价容忍阈值",
+      "集采中选价必须在已落地区域内落地",
+      "参考价涨幅超过阈值需核验",
     ],
   };
 
@@ -172,7 +113,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   replay.push({
     phase: "observe",
     title: "observe 观察",
-    detail: `读取发布元数据、抽样行与源清单：${summary}`,
+    detail: `读取价格批次、目录版本、治理策略与整批 ${rows.length} 行（抽样 ${sample.length} 行交规划器参考）。`,
     at: tNow(),
     ok: true,
   });
@@ -181,11 +122,11 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   const planResult = await generateAgentPlan(observation);
 
   if (!planResult.ok) {
-    // ---- Recover: degraded / failed run, no fake success ----
+    // ---- Recover: degraded run, no fake success ----
     replay.push({
       phase: "recover",
       title: "recover 降级",
-      detail: `Provider 不可用（${planResult.category}）：${planResult.message} 不输出任何 Agent 结论，发布状态置为检查失败。`,
+      detail: `Provider 不可用（${planResult.category}）：${planResult.message} 不输出任何 Agent 结论，治理状态置为检查失败。`,
       at: tNow(),
       ok: false,
     });
@@ -203,9 +144,9 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     insertRun(db, {
       runId,
       releaseId: release.id,
-      mutationType: input.mutationType,
-      inputSummary: summary,
-      candidate: { row_index: baseRow.row_index, ...candidate },
+      scanKind: SCAN_KIND,
+      inputSummary: `整批扫描 ${rows.length} 行（provider 降级）`,
+      candidate: emptyStats(rows.length),
       plan: {
         issue_focus: "none",
         ordered_tools: [],
@@ -249,232 +190,221 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     ok: true,
   });
 
-  // ---- Tools: run every release rule (live plan orders them) + safety backstop ----
-  const runners: Record<string, () => { finding: unknown; call: ToolCall }> = {
-    schema_mapper: () => schemaMapper(candidate),
-    code_dictionary_validator: () => codeDictionaryValidator(candidate),
-    tokenized_identity_matcher: () => tokenizedIdentityMatcher(candidate),
-    access_policy_evaluator: () => accessPolicyEvaluator(candidate),
-    anomaly_profiler: () => anomalyProfiler(candidate, release.release_date),
-  };
-  const allValidators = Object.keys(runners);
-  const planFirst = plan.ordered_tools.filter((t) => t in runners);
-  const order = [...new Set([...planFirst, ...allValidators])];
-
-  const toolCalls: ToolCall[] = [];
-  const findings: Record<string, any> = {};
-  for (const name of order) {
-    const { finding, call } = runners[name]();
-    findings[name] = finding;
-    toolCalls.push(call);
-  }
-  replay.push({
-    phase: "tools",
-    title: "tools 工具调用",
-    detail: toolCalls
-      .map((c) => `${c.tool} → ${c.ok ? "ok" : c.finding ?? "issue"}`)
-      .join("；"),
-    at: tNow(),
-    ok: true,
-  });
-
-  // ---- Decide final state by safety precedence ----
-  const schema = findings.schema_mapper;
-  const anomaly = findings.anomaly_profiler;
-  const dict = findings.code_dictionary_validator;
-  const identity = findings.tokenized_identity_matcher;
-  const policy = findings.access_policy_evaluator;
-
-  let state: ReleaseState = "可发布";
-  let issueType = "";
-  let severity = "low";
-  let sourceRule = "";
-  let confidence = 0.99;
-  let detectedFields: string[] = [];
-  let writer: "correction" | "quarantine" | "approval" | null = null;
-  let issueText = "";
-  let recommendation = "";
-
-  if (!schema.ok) {
-    state = "隔离";
-    issueType = "schema_field_missing";
-    severity = "high";
-    sourceRule = "R-schema";
-    detectedFields = schema.missing;
-    writer = "quarantine";
-    issueText = `字段缺失：${schema.missing.join("、")}`;
-    recommendation = "补齐缺失字段后重新生成数据并重新提交。";
-  } else if (anomaly.anomaly) {
-    state = "隔离";
-    issueType = "date_anomaly";
-    severity = "high";
-    sourceRule = "R1 服务日期不得晚于发布日";
-    detectedFields = ["service_date"];
-    writer = "quarantine";
-    issueText = anomaly.detail;
-    recommendation = "修正服务日期或重新生成数据后重新提交，或联系数据提供方确认日期正确性。";
-  } else if (!dict.valid && !dict.correctable) {
-    state = "隔离";
-    issueType = "code_dictionary_miss";
-    severity = "high";
-    sourceRule = "R2 病种编码必须命中医保目录字典";
-    detectedFields = ["catalog_code"];
-    confidence = 0.9;
-    writer = "quarantine";
-    issueText = `病种编码 ${candidate.catalog_code} 未命中医保目录字典且无安全纠错别名。`;
-    recommendation = "由目录维护员确认正确编码后重新提交，或隔离该行。";
-  } else if (!identity.matched) {
-    state = "需审批";
-    issueType = identity.ambiguous ? "identity_ambiguous" : "identity_unmatched";
-    severity = "high";
-    sourceRule = "R3 人员标识必须唯一命中身份注册表";
-    detectedFields = ["person_token"];
-    confidence = 0.55;
-    writer = "approval";
-    issueText = identity.ambiguous
-      ? `身份 token 模糊匹配，存在 ${identity.candidates} 个候选，Agent 不自动放行。`
-      : `身份 token 未命中注册表，无法确认身份。`;
-    recommendation = "由数据安全员人工确认身份后再决定放行、纠错或隔离。";
-  } else if (!policy.allowed) {
-    state = "需审批";
-    issueType = "access_policy_denied";
-    severity = "high";
-    sourceRule = "R4 访问角色与用途必须满足访问策略";
-    detectedFields = ["requester_role", "purpose"];
-    confidence = 0.6;
-    writer = "approval";
-    issueText = `访问策略拒绝：${policy.reason}。`;
-    recommendation = "由业务审批人按访问策略审批后再决定是否放行。";
-  } else if (!dict.valid && dict.correctable) {
-    state = "纠错候选";
-    issueType = "code_correctable";
-    severity = "medium";
-    sourceRule = "R2 病种编码必须命中医保目录字典";
-    detectedFields = ["catalog_code"];
-    confidence = 0.93;
-    writer = "correction";
-    issueText = `病种编码 ${candidate.catalog_code} 未命中字典，存在高置信纠错：${candidate.catalog_code} → ${dict.suggestion}（${dict.name}）。`;
-    recommendation = "审核纠错提案，确认后纠正编码即可通行。";
-  } else {
-    state = "可发布";
-    issueText = "未发现阻断性问题，当前行符合发布规则与访问策略。";
-    recommendation = "可继续发布或导出审计包。";
-  }
-
-  // ---- Mutate state (durable writes) ----
+  // ---- Tools: scan EVERY row with the deterministic validators ----
   const createdIso = new Date().toISOString();
-  let issueId: string | null = null;
-  if (writer) {
-    issueId = `ISS-${randomUUID().slice(0, 8)}`;
-    db.prepare(
-      `INSERT INTO row_issue (id, run_id, release_id, row_id, row_index, type, severity, detected_fields, source_rule, confidence, status, created_at)
-       VALUES (:id, :run_id, :release_id, :row_id, :row_index, :type, :severity, :detected_fields, :source_rule, :confidence, :status, :created_at)`,
-    ).run({
+  const byState: Record<string, number> = {
+    可落地: 0,
+    纠错候选: 0,
+    异常处置: 0,
+    需核验: 0,
+  };
+  const byIssueType: Record<string, number> = {};
+  const affected: number[] = [];
+  // finding-level counters for an honest tool trace
+  let schemaMiss = 0;
+  let catalogCorrectable = 0;
+  let catalogMiss = 0;
+  let priceOverCeiling = 0;
+  let priceSpike = 0;
+  let collectiveNotLanded = 0;
+  let collectiveOverrun = 0;
+  let channelUnknown = 0;
+  let dateAnomaly = 0;
+  let corrections = 0;
+  let quarantines = 0;
+  let approvals = 0;
+
+  const insIssue = db.prepare(
+    `INSERT INTO row_issue (id, run_id, release_id, row_id, row_index, type, severity, detected_fields, source_rule, confidence, status, created_at)
+     VALUES (:id, :run_id, :release_id, :row_id, :row_index, :type, :severity, :detected_fields, :source_rule, :confidence, :status, :created_at)`,
+  );
+  const insCorrection = db.prepare(
+    `INSERT INTO correction_proposal (id, run_id, release_id, row_id, issue_id, field, before_value, after_value, source_dictionary, rationale, confidence, status, created_at)
+     VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :field, :before_value, :after_value, :source_dictionary, :rationale, :confidence, :status, :created_at)`,
+  );
+  const insQuarantine = db.prepare(
+    `INSERT INTO quarantine_item (id, run_id, release_id, row_id, issue_id, reason, impact, review_status, created_at)
+     VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :reason, :impact, :review_status, :created_at)`,
+  );
+  const insApproval = db.prepare(
+    `INSERT INTO release_approval (id, run_id, release_id, row_id, issue_id, status, reason, policy_snapshot, approver, human_notes, decided_at, created_at)
+     VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :status, :reason, :policy_snapshot, NULL, NULL, NULL, :created_at)`,
+  );
+
+  for (const row of rows) {
+    const candidate: CandidateRow = {
+      item_code: row.item_code,
+      item_name: row.item_name,
+      price_date: row.price_date,
+      procurement_channel: row.procurement_channel,
+      region: row.region,
+      unit_price: row.unit_price,
+    };
+    const { verdict, findings } = classifyRow(candidate, release.release_date);
+
+    // Finding-level tallies. A blank required field is a schema issue, not a
+    // catalog miss, so catalog counting is gated on schema passing.
+    if (!findings.schema.ok) schemaMiss += 1;
+    else if (!findings.standard.valid) {
+      if (findings.standard.correctable) catalogCorrectable += 1;
+      else catalogMiss += 1;
+    }
+    if (findings.price.overCeiling) priceOverCeiling += 1;
+    if (findings.price.spike) priceSpike += 1;
+    if (findings.collective.notLanded) collectiveNotLanded += 1;
+    if (findings.collective.overCollective) collectiveOverrun += 1;
+    if (!findings.collective.channelKnown) channelUnknown += 1;
+    if (findings.anomaly.anomaly) dateAnomaly += 1;
+
+    byState[verdict.state] = (byState[verdict.state] ?? 0) + 1;
+    if (verdict.issueType) {
+      byIssueType[verdict.issueType] = (byIssueType[verdict.issueType] ?? 0) + 1;
+      affected.push(row.row_index);
+    }
+
+    if (!verdict.writer) continue;
+
+    const issueId = `ISS-${randomUUID().slice(0, 8)}`;
+    insIssue.run({
       id: issueId,
       run_id: runId,
       release_id: release.id,
-      row_id: baseRow.id,
-      row_index: baseRow.row_index,
-      type: issueType,
-      severity,
-      detected_fields: JSON.stringify(detectedFields),
-      source_rule: sourceRule,
-      confidence,
+      row_id: row.id,
+      row_index: row.row_index,
+      type: verdict.issueType,
+      severity: verdict.severity,
+      detected_fields: JSON.stringify(verdict.detectedFields),
+      source_rule: verdict.sourceRule,
+      confidence: verdict.confidence,
       status: "open",
       created_at: createdIso,
     });
+
+    if (verdict.writer === "correction") {
+      corrections += 1;
+      insCorrection.run({
+        id: `COR-${randomUUID().slice(0, 8)}`,
+        run_id: runId,
+        release_id: release.id,
+        row_id: row.id,
+        issue_id: issueId,
+        field: "item_code",
+        before_value: row.item_code,
+        after_value: verdict.suggestion ?? "",
+        source_dictionary: manifest?.code_dictionary_version ?? "price-catalog",
+        rationale: `价格目录高置信别名映射：${row.item_code} → ${verdict.suggestion}`,
+        confidence: verdict.confidence,
+        status: "pending",
+        created_at: createdIso,
+      });
+    } else if (verdict.writer === "quarantine") {
+      quarantines += 1;
+      insQuarantine.run({
+        id: `QAR-${randomUUID().slice(0, 8)}`,
+        run_id: runId,
+        release_id: release.id,
+        row_id: row.id,
+        issue_id: issueId,
+        reason: verdict.issueText,
+        impact: "该价格记录若落地将影响挂网价监测、集采执行跟踪与异常预警。",
+        review_status: "in_disposal",
+        created_at: createdIso,
+      });
+    } else if (verdict.writer === "approval") {
+      approvals += 1;
+      insApproval.run({
+        id: `APR-${randomUUID().slice(0, 8)}`,
+        run_id: runId,
+        release_id: release.id,
+        row_id: row.id,
+        issue_id: issueId,
+        status: "pending",
+        reason: verdict.issueText,
+        policy_snapshot: accessSnapshot?.rules_json ?? "{}",
+        created_at: createdIso,
+      });
+    }
   }
 
-  if (writer === "correction" && issueId) {
-    db.prepare(
-      `INSERT INTO correction_proposal (id, run_id, release_id, row_id, issue_id, field, before_value, after_value, source_dictionary, rationale, confidence, status, created_at)
-       VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :field, :before_value, :after_value, :source_dictionary, :rationale, :confidence, :status, :created_at)`,
-    ).run({
-      id: `COR-${randomUUID().slice(0, 8)}`,
-      run_id: runId,
-      release_id: release.id,
-      row_id: baseRow.id,
-      issue_id: issueId,
-      field: "catalog_code",
-      before_value: candidate.catalog_code,
-      after_value: dict.suggestion ?? "",
-      source_dictionary: manifest?.code_dictionary_version ?? "catalog-dict",
-      rationale: `字典高置信别名映射：${candidate.catalog_code} → ${dict.suggestion}`,
-      confidence,
-      status: "pending",
-      created_at: createdIso,
-    });
-    toolCalls.push({
-      tool: "correction_writer",
-      label: "纠错提案写入",
-      input: `catalog_code ${candidate.catalog_code} → ${dict.suggestion}`,
-      output: "correction_proposal(status=pending) 已写入 → ok",
-      ok: true,
-    });
-  }
+  const scanned = rows.length;
+  const issues = affected.length;
+  const clean = byState["可落地"] ?? 0;
+  const state = aggregateState(byState);
 
-  if (writer === "quarantine" && issueId) {
-    db.prepare(
-      `INSERT INTO quarantine_item (id, run_id, release_id, row_id, issue_id, reason, impact, review_status, created_at)
-       VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :reason, :impact, :review_status, :created_at)`,
-    ).run({
-      id: `QAR-${randomUUID().slice(0, 8)}`,
-      run_id: runId,
-      release_id: release.id,
-      row_id: baseRow.id,
-      issue_id: issueId,
-      reason: issueText,
-      impact: "该行若放行将污染下游分析/共享/建模取数。",
-      review_status: "isolated",
-      created_at: createdIso,
-    });
-    toolCalls.push({
-      tool: "quarantine_writer",
-      label: "隔离项写入",
-      input: `row #${baseRow.row_index + 1}`,
-      output: "quarantine_item 已写入，release 置为隔离 → ok",
-      ok: true,
-    });
-  }
+  // ---- Aggregate tool trace (one entry per validator + writers) ----
+  const toolCalls: ToolCall[] = [
+    tool(
+      "schema_mapper",
+      "字段标化",
+      `字段=6 × ${scanned} 行`,
+      `字段完整 ${scanned - schemaMiss} / 缺失 ${schemaMiss}`,
+      schemaMiss === 0,
+      schemaMiss ? "schema_field_missing" : undefined,
+    ),
+    tool(
+      "price_catalog_standardizer",
+      "价格目录标化",
+      `item_code × ${scanned} 行`,
+      `命中 ${scanned - catalogCorrectable - catalogMiss} / 未命中 ${catalogCorrectable + catalogMiss}（可纠错 ${catalogCorrectable} · 硬未命中 ${catalogMiss}）`,
+      catalogCorrectable + catalogMiss === 0,
+      catalogMiss
+        ? "item_catalog_miss"
+        : catalogCorrectable
+          ? "item_code_correctable"
+          : undefined,
+    ),
+    tool(
+      "reference_price_monitor",
+      "参考价动态监测",
+      `unit_price × ${scanned} 行`,
+      `正常 ${scanned - priceOverCeiling - priceSpike} / 超最高有效价 ${priceOverCeiling} / 涨幅核验 ${priceSpike}`,
+      priceOverCeiling + priceSpike === 0,
+      priceOverCeiling ? "price_over_ceiling" : priceSpike ? "price_spike" : undefined,
+    ),
+    tool(
+      "collective_landing_tracker",
+      "集采落地跟踪",
+      `channel+region+unit_price × ${scanned} 行`,
+      `落地正常 ${scanned - collectiveNotLanded - collectiveOverrun - channelUnknown} / 未落地 ${collectiveNotLanded} / 超中选价 ${collectiveOverrun} / 未知渠道 ${channelUnknown}`,
+      collectiveNotLanded + collectiveOverrun + channelUnknown === 0,
+      collectiveOverrun
+        ? "collective_price_overrun"
+        : collectiveNotLanded
+          ? "collective_not_landed"
+          : channelUnknown
+            ? "procurement_channel_unknown"
+            : undefined,
+    ),
+    tool(
+      "anomaly_profiler",
+      "异常画像",
+      `price_date × ${scanned} 行（监测日 ${release.release_date}）`,
+      `正常 ${scanned - dateAnomaly} / 日期异常 ${dateAnomaly}`,
+      dateAnomaly === 0,
+      dateAnomaly ? "date_anomaly" : undefined,
+    ),
+  ];
+  if (corrections > 0)
+    toolCalls.push(tool("correction_writer", "纠错提案写入", `${corrections} 行可纠错`, `写入 ${corrections} 条 correction_proposal(pending)`, true));
+  if (quarantines > 0)
+    toolCalls.push(tool("quarantine_writer", "异常处置写入", `${quarantines} 行硬异常`, `写入 ${quarantines} 条 quarantine_item(in_disposal)`, true));
+  if (approvals > 0)
+    toolCalls.push(tool("approval_router", "核验任务路由", `${approvals} 行需业务核验`, `写入 ${approvals} 条 release_approval(pending)`, true));
+  toolCalls.push(tool("replay_builder", "回放组装", `run=${runId}`, "replay_timeline 已组装", true));
 
-  if (writer === "approval" && issueId) {
-    db.prepare(
-      `INSERT INTO release_approval (id, run_id, release_id, row_id, issue_id, status, reason, policy_snapshot, approver, human_notes, decided_at, created_at)
-       VALUES (:id, :run_id, :release_id, :row_id, :issue_id, :status, :reason, :policy_snapshot, NULL, NULL, NULL, :created_at)`,
-    ).run({
-      id: `APR-${randomUUID().slice(0, 8)}`,
-      run_id: runId,
-      release_id: release.id,
-      row_id: baseRow.id,
-      issue_id: issueId,
-      status: "pending",
-      reason: issueText,
-      policy_snapshot: accessSnapshot?.rules_json ?? "{}",
-      created_at: createdIso,
-    });
-    toolCalls.push({
-      tool: "approval_router",
-      label: "审批路由",
-      input: issueType,
-      output: "release_approval(status=pending) 已写入，release 置为需审批 → ok",
-      ok: true,
-    });
-  }
+  replay.push({
+    phase: "tools",
+    title: "tools 工具调用",
+    detail: `5 个确定性工具 × ${scanned} 行 = ${scanned * VALIDATORS.length} 次校验；命中问题 ${issues} 处（异常处置 ${byState["异常处置"]} · 需核验 ${byState["需核验"]} · 纠错候选 ${byState["纠错候选"]}）。`,
+    at: tNow(),
+    ok: true,
+  });
 
   replay.push({
     phase: "mutate",
     title: "mutate 状态变更",
-    detail: `写入 row_issue${writer ? ` + ${writer}` : ""}；release_state ${beforeState} → ${state}`,
+    detail: `写入 ${issues} 条 row_issue（纠错 ${corrections} · 异常处置 ${quarantines} · 核验 ${approvals}）；governance_state ${beforeState} → ${state}。`,
     at: tNow(),
-    ok: true,
-  });
-
-  // ---- replay_builder + verify ----
-  toolCalls.push({
-    tool: "replay_builder",
-    label: "回放组装",
-    input: `run=${runId}`,
-    output: "replay_timeline 已组装 → ok",
     ok: true,
   });
 
@@ -483,21 +413,38 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   replay.push({
     phase: "verify",
     title: "verify 验证",
-    detail: `重新读取发布状态：${verified?.state}；证据已持久化（agent_run + replay_timeline）。`,
+    detail: `重新读取治理状态：${verified?.state}；${clean} 行可落地、${issues} 行进入闭环，证据已持久化（agent_run + row_issue + replay_timeline）。`,
     at: tNow(),
     ok: verified?.state === state,
   });
+
+  const stats: BatchStats = {
+    total_rows: release.record_count,
+    scanned,
+    validations: scanned * VALIDATORS.length,
+    clean,
+    issues,
+    by_state: {
+      可落地: byState["可落地"] ?? 0,
+      纠错候选: byState["纠错候选"] ?? 0,
+      异常处置: byState["异常处置"] ?? 0,
+      需核验: byState["需核验"] ?? 0,
+    },
+    by_issue_type: byIssueType,
+    affected_row_indexes: affected,
+    validators: VALIDATORS.length,
+  };
 
   const finishedIso = new Date().toISOString();
   const durationMs = Date.now() - started.getTime();
   const outputHash = createHash("sha256")
     .update(
       JSON.stringify({
-        mutation: input.mutationType,
-        candidate,
+        release: release.id,
+        scanned,
+        by_state: stats.by_state,
+        by_issue_type: byIssueType,
         focus: plan.issue_focus,
-        tools: toolCalls.map((t) => t.tool),
-        issueType,
         state,
       }),
     )
@@ -509,9 +456,9 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   insertRun(db, {
     runId,
     releaseId: release.id,
-    mutationType: input.mutationType,
-    inputSummary: summary,
-    candidate: { row_index: baseRow.row_index, ...candidate },
+    scanKind: SCAN_KIND,
+    inputSummary: `整批扫描 ${scanned} 行 → ${issues} 处问题`,
+    candidate: stats as unknown as Record<string, unknown>,
     plan,
     tools: toolCalls,
     resultState: state,
@@ -537,12 +484,38 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   };
 }
 
+function tool(
+  toolName: string,
+  label: string,
+  input: string,
+  output: string,
+  ok: boolean,
+  finding?: string,
+): ToolCall {
+  return { tool: toolName, label, input, output: `${output} → ${ok ? "ok" : "issue"}`, ok, finding };
+}
+
+function emptyStats(total: number): Record<string, unknown> {
+  const s: BatchStats = {
+    total_rows: total,
+    scanned: 0,
+    validations: 0,
+    clean: 0,
+    issues: 0,
+    by_state: { 可落地: 0, 纠错候选: 0, 异常处置: 0, 需核验: 0 },
+    by_issue_type: {},
+    affected_row_indexes: [],
+    validators: VALIDATORS.length,
+  };
+  return s as unknown as Record<string, unknown>;
+}
+
 function insertRun(
   db: ReturnType<typeof getDb>,
   r: {
     runId: string;
     releaseId: string;
-    mutationType: MutationType;
+    scanKind: string;
     inputSummary: string;
     candidate: Record<string, unknown>;
     plan: AgentPlan;
@@ -565,7 +538,7 @@ function insertRun(
   ).run({
     id: r.runId,
     release_id: r.releaseId,
-    mutation_type: r.mutationType,
+    mutation_type: r.scanKind,
     input_summary: r.inputSummary,
     candidate_json: JSON.stringify(r.candidate),
     plan_json: JSON.stringify(r.plan),

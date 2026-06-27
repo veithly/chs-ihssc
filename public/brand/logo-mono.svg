@@ -1,5 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="mono logo">
-  <rect width="512" height="512" rx="64" fill="#111827"/>
-  <path d="M128 168h256v56H128zM128 256h168v56H128zM128 344h256v56H128z" fill="#fff"/>
-  <path d="M344 246l50 50 86-96" fill="none" stroke="#fff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="价序 mono logo">
+  <rect width="512" height="512" rx="96" fill="#111827"/>
+  <circle cx="256" cy="256" r="172" fill="none" stroke="#ffffff" stroke-width="18" opacity=".28"/>
+  <path d="M256 84a172 172 0 0 1 155 246" fill="none" stroke="#ffffff" stroke-width="38" stroke-linecap="round"/>
+  <path d="M105 303a172 172 0 0 0 193 124" fill="none" stroke="#ffffff" stroke-width="38" stroke-linecap="round" opacity=".74"/>
+  <path d="M158 208h118M158 260h164M158 312h92" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="360" cy="316" r="41" fill="#ffffff"/>
+  <path d="M341 316l14 14 28-35" fill="none" stroke="#111827" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="84" r="17" fill="#ffffff"/>
 </svg>

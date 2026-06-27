@@ -25,11 +25,11 @@ export async function POST(req: Request) {
   const result = decideApproval(
     body.approvalId,
     body.decision,
-    body.approver?.trim() || "业务审批人",
+    body.approver?.trim() || "价格核验人",
     body.notes?.trim() || "",
   );
   if (!result) {
-    return NextResponse.json({ ok: false, message: "未找到审批对象。" }, { status: 404 });
+    return NextResponse.json({ ok: false, message: "未找到核验对象。" }, { status: 404 });
   }
   return NextResponse.json({ ok: true, ...result });
 }

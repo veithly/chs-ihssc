@@ -1,46 +1,25 @@
 import { NextResponse } from "next/server";
-import { runReleaseGateAgent, type RunInput } from "@/lib/agent/runReleaseGateAgent";
-import type { MutationType } from "@/lib/types";
+import { runReleaseGateAgent } from "@/lib/agent/runReleaseGateAgent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID: MutationType[] = [
-  "none",
-  "wrong_code",
-  "future_date",
-  "identity_conflict",
-  "access_denied",
-];
-
+// Trigger a whole-batch scan. The Agent reads every row in the release, runs the
+// deterministic validators, writes per-row issues/corrections/quarantine/
+// approvals, and resolves the aggregate release state.
 export async function POST(req: Request) {
-  let body: Partial<RunInput>;
+  let body: { releaseId?: string };
   try {
-    body = (await req.json()) as Partial<RunInput>;
+    body = (await req.json()) as { releaseId?: string };
   } catch {
     return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
   }
 
   if (!body.releaseId) {
-    return NextResponse.json(
-      { ok: false, message: "缺少 releaseId。" },
-      { status: 400 },
-    );
-  }
-  const mutationType = (body.mutationType ?? "none") as MutationType;
-  if (!VALID.includes(mutationType)) {
-    return NextResponse.json(
-      { ok: false, message: `非法的 mutationType: ${mutationType}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: false, message: "缺少 releaseId。" }, { status: 400 });
   }
 
-  const result = await runReleaseGateAgent({
-    releaseId: body.releaseId,
-    rowId: body.rowId,
-    mutationType,
-    override: body.override,
-  });
+  const result = await runReleaseGateAgent({ releaseId: body.releaseId });
 
   // Degraded/failed runs return 200 with the honest result payload so the UI
   // and smoke harness can render the degraded state (no fake success).

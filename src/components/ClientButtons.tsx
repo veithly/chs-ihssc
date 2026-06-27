@@ -50,7 +50,7 @@ export function AuditExportButton({
         URL.revokeObjectURL(url);
       }}
     >
-      <DownloadIcon /> 导出审计包（JSON）
+      <DownloadIcon /> 导出治理证据（JSON）
     </Button>
   );
 }
@@ -65,7 +65,7 @@ export function ResetSampleButton() {
       size="2"
       disabled={busy}
       onClick={async () => {
-        if (!confirm("重置所有示例 Release 与运行记录？将清空当前 agent run / 审批 / 隔离记录。")) return;
+        if (!confirm("重置所有示例价格批次与运行记录？将清空当前 agent run / 核验 / 异常处置记录。")) return;
         setBusy(true);
         await fetch("/api/admin/reseed", { method: "POST" });
         setBusy(false);
@@ -79,7 +79,7 @@ export function ResetSampleButton() {
 
 export function ApprovalActions({ approvalId }: { approvalId: string }) {
   const router = useRouter();
-  const [approver, setApprover] = useState("业务审批人");
+  const [approver, setApprover] = useState("价格核验人");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -100,20 +100,20 @@ export function ApprovalActions({ approvalId }: { approvalId: string }) {
         size="2"
         value={approver}
         onChange={(e) => setApprover(e.target.value)}
-        placeholder="审批人"
+        placeholder="核验人"
       />
       <TextArea
         size="2"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="审批备注（将与 Agent 建议分开记录在回放中）"
+        placeholder="核验备注（将与智能体建议分开记录在回放中）"
       />
       <Flex gap="2">
         <Button color="green" disabled={busy} onClick={() => decide("approved")} data-approve>
-          批准放行（可发布）
+          确认落地（可落地）
         </Button>
         <Button color="red" variant="soft" disabled={busy} onClick={() => decide("rejected")} data-reject>
-          拒绝（隔离）
+          转异常处置
         </Button>
       </Flex>
     </Flex>

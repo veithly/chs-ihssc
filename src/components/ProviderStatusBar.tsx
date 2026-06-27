@@ -8,35 +8,60 @@ export function ProviderStatusBar({
   policyVersion?: string;
 }) {
   return (
-    <div
-      style={{
-        maxWidth: 1180,
-        margin: "0 auto",
-        padding: "10px 24px 28px",
-        fontSize: 12.5,
-        color: "var(--gate-ink-soft)",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-      }}
-    >
+    <div className="provider-status-bar" data-provider-status-bar>
       <span
+        className={`provider-status-dot ${status.configured ? "ok" : "warn"}`}
         aria-hidden
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: status.configured ? "var(--gate-green)" : "var(--gate-amber)",
-          display: "inline-block",
-        }}
       />
       <span>
-        Provider：{status.configured ? `就绪（${status.baseUrlHost} · ${status.model}）` : "未配置（降级模式）"}
+        Provider ·
+        {status.configured
+          ? ` 就绪 · ${status.baseUrlHost} · ${status.model}`
+          : " 未配置（降级模式）"}
       </span>
-      {policyVersion && <span style={{ opacity: 0.5 }}>·</span>}
-      {policyVersion && <span>策略版本 {policyVersion}</span>}
-      <span style={{ opacity: 0.5 }}>·</span>
+      {policyVersion && (
+        <>
+          <span className="provider-status-sep" aria-hidden>·</span>
+          <span className="mono">策略版本 {policyVersion}</span>
+        </>
+      )}
+      <span className="provider-status-sep" aria-hidden>·</span>
       <span>合成脱敏数据</span>
+
+      <style>{`
+        .provider-status-bar {
+          max-width: 1320px;
+          margin: 0 auto;
+          padding: 12px 24px 28px;
+          font-size: 12px;
+          color: var(--gate-ink-soft);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .provider-status-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          display: inline-block;
+        }
+        .provider-status-dot.ok {
+          background: var(--gate-green);
+          box-shadow: 0 0 0 3px rgba(19, 122, 75, 0.14);
+        }
+        .provider-status-dot.warn {
+          background: var(--gate-amber);
+          box-shadow: 0 0 0 3px rgba(183, 110, 0, 0.14);
+        }
+        .provider-status-sep {
+          opacity: 0.45;
+          margin: 0 2px;
+        }
+        @media (max-width: 720px) {
+          .provider-status-bar { padding: 10px 14px 22px; font-size: 11.5px; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Credential discovery + .env.local writer for the 医保可信数据通行 Agent.
+// Credential discovery + .env.local writer for the 医药价格治理 Agent.
 // Discovery order (PRD 12.2): project .env.local / .dev.vars / .env ->
 // ~/user_key.txt -> ~/use_key.txt. Never prints secret values.
 // Usage: node scripts/apply_use_key_env.mjs [--dry-run]

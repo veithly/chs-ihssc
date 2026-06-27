@@ -1,74 +1,103 @@
 #!/usr/bin/env node
-// Desktop + mobile screenshots driven by real clicks through the hero flow.
+// Desktop + mobile screenshots for the renewed /workspace product loop.
 import { chromium, devices } from "playwright";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-const PORT = process.env.HUNTER_DEV_PORT || "3000";
+const PORT = process.env.HUNTER_DEV_PORT || "3300";
 const BASE = process.env.DEMO_URL?.replace(/\/$/, "") || `http://127.0.0.1:${PORT}`;
 const OUT = join(process.cwd(), "docs", "screenshots");
+
+rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 async function shot(page, name) {
-  await page.waitForTimeout(700); // let entrance/state animations settle
+  await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, name), fullPage: true });
   console.log("  shot", name);
 }
 
-async function runMutation(page, chip) {
-  await page.click(`[data-mutation-chip="${chip}"]`);
-  await page.click("[data-cta-primary]");
-  await page.waitForURL("**/result", { timeout: 40000 });
-  await page.waitForLoadState("networkidle");
+async function reset() {
+  await fetch(`${BASE}/api/admin/reseed`, { method: "POST" });
 }
 
 const main = async () => {
-  await fetch(`${BASE}/api/admin/reseed`, { method: "POST" });
+  await reset();
   const browser = await chromium.launch();
 
-  // ---- Desktop ----
   const ctx = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: 1440, height: 920 },
     deviceScaleFactor: 2,
     locale: "zh-CN",
   });
   const page = await ctx.newPage();
 
-  await page.goto(`${BASE}/release/REL-2026-0623-07`, { waitUntil: "networkidle" });
-  await shot(page, "01-release-gate.png");
+  await page.goto(`${BASE}/workspace`, { waitUntil: "networkidle" });
+  await shot(page, "01-workspace-empty.png");
 
-  await runMutation(page, "future_date");
-  await shot(page, "02-result-quarantine.png");
+  await page.locator("[data-source-card]").first().click();
+  await page.waitForSelector(".dataset-chip");
+  await shot(page, "02-source-attached.png");
 
-  await page.goto(`${BASE}/release/REL-2026-0623-07/replay`, { waitUntil: "networkidle" });
-  await shot(page, "03-replay.png");
+  const firstPrompt = page.locator("[data-prompt-chip]").first();
+  await firstPrompt.click();
+  await page.waitForSelector('[data-agent-plan="running"]', { timeout: 3000 }).catch(() => {});
+  await shot(page, "03-agent-running.png");
 
-  await page.goto(`${BASE}/release/REL-2026-0623-07/proof`, { waitUntil: "networkidle" });
-  await shot(page, "04-proof.png");
+  await page.waitForSelector("[data-generated-object] .object-tab-count", {
+    timeout: 90000,
+  });
+  // Wait for at least one tab to report a non-zero count (agent finished).
+  await page.waitForFunction(() => {
+    const counts = Array.from(document.querySelectorAll("[data-generated-object] .object-tab-count"));
+    return counts.some((c) => Number((c.textContent ?? "").trim()) > 0);
+  }, { timeout: 90000 });
+  await shot(page, "04-agent-result.png");
 
-  await page.goto(`${BASE}/release/REL-2026-0623-07`, { waitUntil: "networkidle" });
-  await runMutation(page, "access_denied");
-  await shot(page, "05-result-approval.png");
+  // Mapping tab is default; scroll the tab body into view.
+  await page.locator("[data-field-mapping]").scrollIntoViewIfNeeded();
+  await shot(page, "05-field-mapping-repair.png");
 
-  await page.goto(`${BASE}/release/REL-2026-0623-07/approval`, { waitUntil: "networkidle" });
-  await shot(page, "06-approval.png");
+  // Switch to the institution drafts tab and capture it.
+  await page.locator(".object-tab", { hasText: "机构口径" }).click();
+  await page.locator("[data-draft-preview]").scrollIntoViewIfNeeded();
+  await shot(page, "06-workflow-drafts.png");
 
-  await page.goto(`${BASE}/queue`, { waitUntil: "networkidle" });
-  await shot(page, "07-queue.png");
-
-  await page.goto(`${BASE}/settings`, { waitUntil: "networkidle" });
-  await shot(page, "08-settings.png");
-
+  await page.locator("[data-conversation-composer] textarea").fill("把重点机构放前面，缺包装单位的先转数据治理确认。");
+  await page.locator("[data-conversation-composer] button").click();
+  await page.waitForResponse((res) => res.url().includes("/api/workspace/run") && res.status() === 200, {
+    timeout: 90000,
+  }).catch(() => {});
+  await page.waitForTimeout(1000);
+  await shot(page, "07-followup-instruction.png");
   await ctx.close();
 
-  // ---- Mobile (iPhone 13) ----
+  await reset();
   const mctx = await browser.newContext({ ...devices["iPhone 13"], locale: "zh-CN" });
   const mp = await mctx.newPage();
-  await mp.goto(`${BASE}/release/sample`, { waitUntil: "networkidle" });
-  await shot(mp, "09-mobile-gate.png");
-  await runMutation(mp, "future_date");
-  await shot(mp, "10-mobile-result.png");
+  await mp.goto(`${BASE}/workspace`, { waitUntil: "networkidle" });
+  await shot(mp, "08-mobile-workspace.png");
   await mctx.close();
+
+  // Landing page hero + deep-link loop proof.
+  await reset();
+  const lctx = await browser.newContext({
+    viewport: { width: 1440, height: 920 },
+    deviceScaleFactor: 2,
+    locale: "zh-CN",
+  });
+  const lp = await lctx.newPage();
+  await lp.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  await shot(lp, "10-landing-hero.png");
+  // Click the first landing prompt to deep-link into /workspace?prompt=...
+  await lp.locator("[data-prompt-rail] [data-prompt-chip]").first().click();
+  await lp.waitForURL(/\/workspace\?prompt=/, { timeout: 5000 });
+  await lp.waitForFunction(() => {
+    const counts = Array.from(document.querySelectorAll("[data-generated-object] .object-tab-count"));
+    return counts.some((c) => Number((c.textContent ?? "").trim()) > 0);
+  }, { timeout: 90000 });
+  await shot(lp, "11-landing-loop-proof.png");
+  await lctx.close();
 
   await browser.close();
   console.log("[screenshots] done ->", OUT);

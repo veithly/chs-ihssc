@@ -2,7 +2,7 @@
   "name": "chs-ihssc",
   "private": true,
   "version": "0.1.0",
-  "description": "医保可信数据通行 Agent — 让评委弄脏一行医保数据，看 Agent 决定这批数据能否通行。",
+  "description": "价序 — 对话式医药价格治理工作台。",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,7 +11,10 @@
     "creds": "node scripts/apply_use_key_env.mjs",
     "seed": "node scripts/seed_demo.mjs",
     "smoke:agent": "node scripts/smoke-agent.mjs",
-    "shots": "node scripts/screenshots.mjs"
+    "smoke:jiaxu": "node scripts/smoke-agent.mjs",
+    "shots": "node scripts/screenshots.mjs",
+    "deck:export": "node scripts/export_deck.mjs",
+    "video:demo": "node scripts/record_demo.mjs"
   },
   "dependencies": {
     "@radix-ui/react-icons": "^1.3.2",

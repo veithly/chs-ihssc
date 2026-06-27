@@ -24,15 +24,17 @@ export default async function ProofPage({
   if (!release) {
     return (
       <div className="gate-shell">
-        <AppHeader active="数据通行" />
-        <div style={{ maxWidth: 720, margin: "60px auto", textAlign: "center" }}>未找到发布批次 {id}</div>
+        <AppHeader active="价格治理" />
+        <main className="proof-empty">未找到价格批次 {id}</main>
       </div>
     );
   }
   const manifest = getManifest(id);
   const access = getAccessSnapshot(id);
   const run = getLatestRun(id);
-  const policy = access ? (JSON.parse(access.rules_json) as Record<string, { allowedRoles: string[]; allowedPurposes: string[] }>) : {};
+  const policy = access
+    ? (JSON.parse(access.rules_json) as Record<string, { regions: string[]; channels: string[]; note: string }>)
+    : {};
 
   // Deep-clone to plain objects: node:sqlite rows have a null prototype and
   // cannot be passed directly to a Client Component.
@@ -51,12 +53,12 @@ export default async function ProofPage({
             schema_version: manifest.schema_version,
             code_dictionary_version: manifest.code_dictionary_version,
             token_method: manifest.token_method,
-            access_policy_version: manifest.access_policy_version,
+            procurement_channel_version: manifest.procurement_channel_version,
             release_rule_version: manifest.release_rule_version,
             fixture_provenance: manifest.fixture_provenance,
           }
         : null,
-      access_rule_snapshot: access ? JSON.parse(access.rules_json) : null,
+      procurement_rule_snapshot: access ? JSON.parse(access.rules_json) : null,
       release_rules: RELEASE_RULES,
       latest_run: run
         ? {
@@ -75,73 +77,225 @@ export default async function ProofPage({
   );
 
   const manifestRows: { label: string; value: string }[] = [
-    { label: "schema 版本", value: manifest?.schema_version ?? "-" },
-    { label: "目录字典版本", value: manifest?.code_dictionary_version ?? "-" },
-    { label: "身份匹配方法", value: manifest?.token_method ?? "-" },
-    { label: "访问策略版本", value: manifest?.access_policy_version ?? "-" },
-    { label: "发布规则版本", value: manifest?.release_rule_version ?? "-" },
+    { label: "价格 schema", value: manifest?.schema_version ?? "-" },
+    { label: "价格目录版本", value: manifest?.code_dictionary_version ?? "-" },
+    { label: "参考价来源", value: manifest?.token_method ?? "-" },
+    { label: "渠道策略版本", value: manifest?.procurement_channel_version ?? "-" },
+    { label: "治理规则版本", value: manifest?.release_rule_version ?? "-" },
     { label: "数据来源", value: manifest?.fixture_provenance ?? "-" },
   ];
 
   return (
     <div className="gate-shell">
-      <AppHeader active="数据通行" />
-      <Breadcrumb items={["数据通行", "数据集发布", id, "源清单与策略"]} />
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "12px 24px 40px" }}>
+      <AppHeader active="价格治理" />
+      <Breadcrumb items={["价格治理", "价格批次", id, "目录与规则"]} />
+      <main className="proof-shell">
         <ResultTabs releaseId={id} active="proof" />
 
-        <div data-source-manifest className="result-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 20, alignItems: "start" }}>
-          <section className="gate-card" style={{ padding: 22 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <strong style={{ fontSize: 15 }}>源清单（Source Manifest）</strong>
-              <Badge data-policy-version variant="soft" color="blue">{manifest?.access_policy_version}</Badge>
+        <div data-source-manifest className="proof-grid">
+          <section className="gate-card proof-main">
+            <div className="proof-main-head">
+              <strong>价格目录与源清单</strong>
+              <Badge data-policy-version variant="soft" color="blue" radius="full">
+                {manifest?.procurement_channel_version}
+              </Badge>
             </div>
-            <div className="gate-card-flat">
+            <dl className="proof-manifest">
               {manifestRows.map((r, i) => (
-                <div key={r.label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "12px 14px", borderTop: i === 0 ? "none" : "1px solid var(--gate-border)", fontSize: 13.5 }}>
-                  <span style={{ color: "var(--gate-ink-soft)" }}>{r.label}</span>
-                  <span style={{ lineHeight: 1.55 }}>{r.value}</span>
+                <div
+                  key={r.label}
+                  className="proof-manifest-row"
+                  style={{ borderTop: i === 0 ? "none" : "1px solid var(--border-soft)" }}
+                >
+                  <dt>{r.label}</dt>
+                  <dd>{r.value}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
 
-            <strong style={{ display: "block", fontSize: 14, margin: "22px 0 10px" }}>发布规则（Release Rules）</strong>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.9, color: "var(--gate-ink)" }}>
+            <div className="proof-rules-head">治理规则 · Governance Rules</div>
+            <ul className="proof-rules">
               {RELEASE_RULES.map((r) => (
                 <li key={r}>{r}</li>
               ))}
             </ul>
 
-            <div style={{ marginTop: 22 }}>
-              <AuditExportButton data={auditPackage} filename={`audit-${release.id}.json`} />
+            <div className="proof-export-row">
+              <AuditExportButton data={auditPackage} filename={`price-governance-${release.id}.json`} />
             </div>
           </section>
 
-          <aside className="gate-card" style={{ padding: 22 }}>
-            <strong style={{ fontSize: 15, display: "block", marginBottom: 14 }}>访问策略快照</strong>
+          <aside className="gate-card proof-side">
+            <div className="proof-side-head">
+              <strong>采购渠道策略快照</strong>
+              <span className="mono proof-side-meta">{Object.keys(policy).length} channels</span>
+            </div>
             {Object.entries(policy).map(([label, p]) => (
-              <div key={label} className="gate-card-flat" style={{ padding: 14, marginBottom: 12 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{label}</div>
-                <div style={{ fontSize: 13, color: "var(--gate-ink-soft)", marginBottom: 4 }}>允许角色</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                  {p.allowedRoles.map((r) => (
-                    <Badge key={r} variant="soft" color="green" size="1">{r}</Badge>
+              <div key={label} className="proof-policy-card">
+                <div className="proof-policy-title">{label}</div>
+                <div className="proof-policy-label">适用地区</div>
+                <div className="proof-policy-badges">
+                  {p.regions.map((r) => (
+                    <Badge key={r} variant="soft" color="green" size="1" radius="full">{r}</Badge>
                   ))}
                 </div>
-                <div style={{ fontSize: 13, color: "var(--gate-ink-soft)", marginBottom: 4 }}>允许用途</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {p.allowedPurposes.map((r) => (
-                    <Badge key={r} variant="soft" color="blue" size="1">{r}</Badge>
+                <div className="proof-policy-label">渠道</div>
+                <div className="proof-policy-badges">
+                  {p.channels.map((r) => (
+                    <Badge key={r} variant="soft" color="blue" size="1" radius="full">{r}</Badge>
                   ))}
                 </div>
+                <div className="proof-policy-note">{p.note}</div>
               </div>
             ))}
-            <p style={{ fontSize: 12.5, color: "var(--gate-ink-soft)", lineHeight: 1.6, marginTop: 8 }}>
-              该快照在通行检查时被 access_policy_evaluator 读取；越权角色/用途将进入「需审批」。
+            <p className="proof-side-foot">
+              该快照在价格治理时被 collective_landing_tracker 读取；未落地地区或未知渠道将进入「需核验」。
             </p>
           </aside>
         </div>
-      </div>
+      </main>
+      <style>{`
+        .proof-shell {
+          max-width: 1320px;
+          margin: 0 auto;
+          padding: 14px 24px 40px;
+        }
+        .proof-empty {
+          max-width: 720px;
+          margin: 60px auto;
+          padding: 24px;
+          text-align: center;
+          color: var(--gate-ink-soft);
+        }
+        .proof-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+          gap: 18px;
+          align-items: start;
+        }
+        .proof-main, .proof-side { padding: 22px; }
+        .proof-main-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+        .proof-main-head strong {
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .proof-manifest {
+          margin: 0;
+          border: 1px solid var(--gate-border);
+          border-radius: 10px;
+          overflow: hidden;
+          background: var(--surface-subtle);
+        }
+        .proof-manifest-row {
+          display: grid;
+          grid-template-columns: 140px minmax(0, 1fr);
+          gap: 12px;
+          padding: 12px 14px;
+        }
+        .proof-manifest-row dt {
+          color: var(--ink-3);
+          font-size: 11.5px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          font-weight: 600;
+        }
+        .proof-manifest-row dd {
+          margin: 0;
+          font-size: 13px;
+          color: var(--gate-ink);
+          line-height: 1.55;
+        }
+        .proof-rules-head {
+          margin: 22px 0 10px;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .proof-rules {
+          margin: 0;
+          padding-left: 18px;
+          font-size: 13px;
+          line-height: 1.85;
+          color: var(--gate-ink);
+        }
+        .proof-export-row {
+          margin-top: 22px;
+        }
+        .proof-side-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+        .proof-side-head strong {
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .proof-side-meta {
+          font-size: 10.5px;
+          color: var(--ink-3);
+          padding: 3px 8px;
+          border-radius: 999px;
+          background: var(--surface-sunken);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          font-weight: 600;
+        }
+        .proof-policy-card {
+          border: 1px solid var(--gate-border);
+          border-radius: 10px;
+          background: var(--surface-subtle);
+          padding: 14px 16px;
+          margin-bottom: 10px;
+        }
+        .proof-policy-title {
+          font-weight: 600;
+          font-size: 14px;
+          margin-bottom: 10px;
+          color: var(--gate-ink);
+        }
+        .proof-policy-label {
+          font-size: 10.5px;
+          color: var(--ink-3);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          font-weight: 600;
+          margin-bottom: 5px;
+        }
+        .proof-policy-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          margin-bottom: 10px;
+        }
+        .proof-policy-note {
+          font-size: 12px;
+          color: var(--gate-ink-soft);
+          line-height: 1.55;
+          margin-top: 8px;
+        }
+        .proof-side-foot {
+          font-size: 11.5px;
+          color: var(--ink-3);
+          line-height: 1.6;
+          margin-top: 10px;
+        }
+        @media (max-width: 820px) {
+          .proof-grid { grid-template-columns: 1fr; }
+        }
+      `}</style>
     </div>
   );
 }

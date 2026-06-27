@@ -1,15 +1,21 @@
 {
-  "project_language": "zh",
+  "project_language": "zh-CN",
   "branch": "AI",
-  "frontend": "Next.js App Router + React + Radix Themes + Tailwind plumbing",
-  "storage": "SQLite or Postgres-compatible durable store for dataset releases, issues, approvals, agent runs, and replay timelines",
-  "real_data_source": "Synthetic/desensitized医保 dataset fixtures with source manifests and secure trusted data-space migration path",
+  "frontend": "Next.js App Router + React + Radix Themes + app-owned product UI components",
+  "storage": "SQLite durable store for conversation threads, uploaded datasets, local demo data-source connections, agent instructions, field mappings, repair patches, match groups, unit conversions, price basis packs, workflow tasks, institution drafts, provider runs, and run events",
+  "real_data_source": "Synthetic/desensitized 医药价格治理 uploaded tables and local demo data-source events: platform/listed price changes, selected prices, institution execution-price returns, historical prices, package/unit ambiguity, catalog aliases, unresolved follow-ups",
   "real_data_sources": [
     {
-      "name": "desensitized_release_fixture",
+      "name": "desensitized_price_conversation_sources",
       "type": "database",
-      "url": "local-fixture://dataset-release/sample",
-      "evidence": "pitch/user_cases.md and future .hunter/agent-runs.json"
+      "url": "local-fixture://price-workspace/demo-source",
+      "evidence": "pitch/project_prd.md, pitch/uiux_interaction_plan.md, .hunter/product-slice.yaml"
+    },
+    {
+      "name": "csv_xlsx_upload_context",
+      "type": "manual_upload",
+      "url": "local-ui://workspace/upload",
+      "evidence": "Upload/connect is the context path; built-in business prompt drives the agent run"
     }
   ],
   "deployment": "local dev for G3, public deploy later via Cloudflare Pages or Vercel after reality review",
@@ -45,42 +51,43 @@
       "$HOME/user_key.txt",
       "$HOME/use_key.txt"
     ],
-    "apply_command": "node /Users/rick/Documents/MySkill/hackathonhunter-skill/scripts/apply_use_key_env.mjs --dry-run",
-    "result": "pending_for_G3",
+    "apply_command": "node scripts/apply_use_key_env.mjs --dry-run",
+    "result": "applied",
     "secret_values_printed": false
   },
   "live_provider_smoke": {
-    "command": "npm run smoke:agent",
-    "evidence": ".hunter/agent-runs.json with two distinct live inputs and outputs during G3"
+    "command": "npm run smoke:jiaxu",
+    "evidence": ".hunter/live-provider-smoke.json and .hunter/agent-runs.json with two distinct /workspace provider-backed runs, data context, generated objects, needs-user question, and follow-up task changes"
   },
   "wallet_required": false,
   "wallet_path": "",
-  "no_wallet_exception": "This is a server-issued医保 workflow state product, not Web3/ZK/chain. The user does not own, mint, trade, pay, attest, or sign an onchain result.",
-  "demo_signer_policy": "not applicable",
-  "sponsor_technology_not_applicable_reason": "The contest sponsor primitive is医保 trusted data and Agent orchestration rather than a named SDK; domain data/rules are core in the product state loop.",
-  "visual_style_lane": "regulated-product-release-gate",
+  "no_wallet_exception": "This is a server-issued 医药价格治理 workflow state product, not Web3/ZK/chain. Users do not own, mint, trade, pay, attest, or sign an onchain result.",
+  "sponsor_technology_not_applicable_reason": "The contest primitive is 医保 domain data/rules and Agent orchestration rather than a named SDK; price governance sources and state transitions are core.",
+  "visual_style_lane": "regulated-public-service-conversation-workbench",
   "primary_ui_library": "Radix Themes",
   "supporting_ui_library": "none, domain components are app-owned",
   "official_docs_checked": "https://www.radix-ui.com/themes/docs/overview",
   "install_commands": "npm install @radix-ui/themes @radix-ui/react-icons",
-  "tailwind_rejection": "Tailwind-only or default shadcn would look like a generic AI/admin shell; use app-owned release-state components.",
-  "hero_composition": "single-row-release-gate",
-  "visual_differentiation_note": "trusted data release workstation, not fraud dashboard or lineage wall",
-  "forbidden_lookalikes": "AI purple landing page, command center, audit console, permission matrix, data-quality score dashboard",
-  "qr_mobile_access_plan": "QR opens /release/sample directly",
-  "mobile_primary_flow": "mutation chips and CTA first, proof bottom sheet after action",
-  "desktop_parity_plan": "desktop and mobile keep same state labels, replay, and proof links",
-  "non_tailwind_visual_signature": "release-state rail, mutation chips, consequence preview strip, replay split",
-  "delivery_mode": "live-pitch",
-  "delivery_mode_reason": "Final contest requires live system operation and defense, so materials should support a live pitch rather than only a combined video.",
+  "tailwind_rejection": "Tailwind-only or default shadcn would look like a generic admin shell; use app-owned conversation, data-source, generated-object, and workflow-task components.",
+  "hero_composition": "price-conversation-workspace",
+  "visual_differentiation_note": "conversation-first price governance workbench with upload/connect context and built-in business prompts, not a CSV upload audit, fixed button batch tool, report generator, evidence desk, or command center",
+  "forbidden_lookalikes": "CSV upload homepage, fixed one-button audit surface, all-row table hero, red/yellow/green abnormal ranking, trend dashboard, evidence/proof wall, AI-purple landing page",
+  "qr_mobile_access_plan": "QR opens renewed workspace thread with prompt chips and generated tasks",
+  "mobile_primary_flow": "conversation, prompt chips, data-source context, generated tasks/drafts, needs-user question",
+  "desktop_parity_plan": "desktop and mobile keep same conversation state, generated objects, workflow tasks, drafts, clarification, and provider failure boundaries",
+  "non_tailwind_visual_signature": "conversation composer, prompt chip rail, data-source cards, agent plan messages, generated object panel, workflow/draft previews",
+  "delivery_mode": "live-pitch-plus-5min-video",
+  "delivery_mode_reason": "Final contest requires live system operation and defense; materials should tell the product story while the app remains runnable.",
   "video_composer": "hyperframes",
-  "video_target_duration_s": 210,
-  "why_this_stack": "Next.js gives server-side provider boundaries, Radix gives accessible product controls, and durable storage supports state-changing Agent evidence.",
+  "video_target_duration_s": 300,
+  "why_this_stack": "Next.js gives server-side provider boundaries, Radix gives accessible product controls, and SQLite supports judge-visible durable Agent state without adding deployment risk.",
   "cut_if_time_runs_out": [
-    "national trusted data-space adapter",
-    "all four track modules",
-    "batch analytics",
-    "rich lineage graph",
-    "advanced admin"
+    "real招采平台 adapter",
+    "real institution portal",
+    "independent evidence_pack table",
+    "independent institution_response table",
+    "advanced role permissions",
+    "analytics dashboards",
+    "full public deployment automation"
   ]
 }
