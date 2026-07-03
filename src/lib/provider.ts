@@ -124,10 +124,16 @@ const WORKSPACE_SYSTEM_PROMPT = `你是"价序"的对话式医药价格治理工
   "answer": "给用户看的结果/阶段说明，必须自然、具体、不要像宣传文案",
   "clarifying_question": "如需追问则给出一个具体问题；没有则为空字符串",
   "drafts": [
-    {"target_name": "机构名或内部角色", "draft_type": "机构核实 | 集采催办 | 数据治理确认", "content": "可复制草稿，保留请核实/请补充/待人工确认口径"}
+    {"target_name": "机构名或内部角色", "draft_type": "机构核实 | 集采催办 | 数据治理确认 | 处置建议卡", "content": "可复制草稿，保留请核实/请补充/待人工确认口径"}
   ],
   "task_policy": "本次流程任务如何归类和排序"
-}`;
+}
+
+当存在拿不准、缺关键字段或敏感的处置项时，drafts 里额外生成 draft_type="处置建议卡" 的条目，content 必须是 JSON 字符串：
+{"recommendation":"建议动作(转数据治理/生成机构核实/集采催办/暂排除/进入报告)","rationale":"一句中文依据：源行/归并理由/换算公式/命中规则","severity":"low|medium|high|critical","confidence":"high|medium|low","human_actions":["采纳","改派","驳回","补证"]}
+处置建议卡是给人看的辅助判断，不替人定性，不自动发函/通报/关闭。
+
+输出长度要求（必须遵守）：answer 不超过 180 字；plan_summary、task_policy 各一句话；每份草稿 content 不超过 160 字（处置建议卡的 JSON 除外）；drafts 总数不超过 5 份。直接给结论，不要铺垫。`;
 
 function extractJson(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -195,7 +201,7 @@ export async function generateWorkspacePlan(
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
+  const timeout = setTimeout(() => controller.abort(), 90000);
   const started = Date.now();
 
   try {
@@ -287,7 +293,7 @@ export async function generateWorkspacePlan(
       ok: false,
       category: aborted ? "provider_timeout" : "provider_unreachable",
       message: aborted
-        ? "Provider 调用超时（45s）。"
+        ? "Provider 调用超时（90s）。"
         : `Provider 调用失败：${err instanceof Error ? err.message : String(err)}`,
       meta: { model: config.model, baseUrlHost: host },
     };
@@ -333,7 +339,7 @@ async function generatePlanWithPrompt(
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
+  const timeout = setTimeout(() => controller.abort(), 90000);
   const started = Date.now();
 
   try {
@@ -401,7 +407,7 @@ async function generatePlanWithPrompt(
       ok: false,
       category: aborted ? "provider_timeout" : "provider_unreachable",
       message: aborted
-        ? "Provider 调用超时（45s）。"
+        ? "Provider 调用超时（90s）。"
         : `Provider 调用失败：${err instanceof Error ? err.message : String(err)}`,
       meta: { model: config.model, baseUrlHost: host },
     };

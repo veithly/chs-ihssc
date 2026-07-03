@@ -1,9 +1,11 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { getDb } from "./db";
 import {
   ACCESS_POLICY,
   ACCESS_POLICY_VERSION,
   CODE_DICTIONARY_VERSION,
+  PRICE_CATALOG,
   RELEASE_RULE_VERSION,
   SCHEMA_FIELDS,
   SCHEMA_VERSION,
@@ -43,6 +45,13 @@ const DOMAIN_TABLES = [
   "dataset_row",
   "dataset_version",
   "dataset_release",
+  "approval_decision_log",
+  "rule_candidate",
+  "policy_drift_log",
+  "policy_fact",
+  "policy_artifact",
+  "ingestion_run",
+  "policy_source",
 ];
 
 export interface SeedSummary {
@@ -213,6 +222,8 @@ function seedInto(): SeedSummary {
     updated_at: created,
   });
 
+  seedPolicyFacts(db, created);
+
   return {
     releases: fixtures.length,
     rows: rowCount,
@@ -220,6 +231,76 @@ function seedInto(): SeedSummary {
     releaseIds: fixtures.map((f) => f.id),
     generatedAt: created,
   };
+}
+
+// V2: 把 PRICE_CATALOG 从硬编码外部化为可导入、可对齐、可漂移检测的 policy_fact baseline。
+// 同时注册一个真实 L0 公开源（国家医保局政策公告页），enabled=0 默认不自动抓，
+// 由政策同步 API 手动/定时触发，确保合规边界（robots/terms/access_level 留痕）。
+function seedPolicyFacts(db: ReturnType<typeof getDb>, created: string): void {
+  const insSource = db.prepare(`INSERT INTO policy_source
+    (id, name, source_type, jurisdiction, base_url, access_level, crawl_strategy, robots_status, terms_status, rate_limit_per_min, enabled, notes, last_checked_at, created_at, updated_at)
+    VALUES (:id, :name, :source_type, :jurisdiction, :base_url, :access_level, :crawl_strategy, :robots_status, :terms_status, :rate_limit_per_min, :enabled, :notes, :last_checked_at, :created_at, :updated_at)`);
+  insSource.run({
+    id: "PS-NHSA-POLICY-001",
+    name: "国家医保局政策法规公告",
+    source_type: "nhsa_policy",
+    jurisdiction: "national",
+    base_url: "https://www.nhsa.gov.cn/col/col4/index.html",
+    access_level: "public",
+    crawl_strategy: "html_index",
+    robots_status: "allowed",
+    terms_status: "ok",
+    rate_limit_per_min: 4,
+    enabled: 1,
+    notes: "L0 公开公告：自动同步元数据+附件，hash 留痕，限频。不碰登录/CA 平台、App 逆向、不公开支付标准。",
+    last_checked_at: created,
+    created_at: created,
+    updated_at: created,
+  });
+  insSource.run({
+    id: "PS-LEGACY-FIXTURE",
+    name: "种子政策事实（合成 baseline）",
+    source_type: "manual_import",
+    jurisdiction: "national",
+    base_url: null,
+    access_level: "manual_only",
+    crawl_strategy: "disabled",
+    robots_status: null,
+    terms_status: null,
+    rate_limit_per_min: 0,
+    enabled: 0,
+    notes: "从 PRICE_CATALOG 迁移的合成 baseline，作为漂移检测的初始参照。生产环境应由真实政策源覆盖。",
+    last_checked_at: created,
+    created_at: created,
+    updated_at: created,
+  });
+
+  const insFact = db.prepare(`INSERT INTO policy_fact
+    (id, item_code, item_name, category, unit, reference_price, ceiling_price, collective_price, landed_regions_json, effective_start, effective_end, jurisdiction, source_url, source_hash, confidentiality_level, fact_hash, created_at)
+    VALUES (:id, :item_code, :item_name, :category, :unit, :reference_price, :ceiling_price, :collective_price, :landed_regions_json, :effective_start, :effective_end, :jurisdiction, :source_url, :source_hash, :confidentiality_level, :fact_hash, :created_at)`);
+
+  for (const [itemCode, item] of Object.entries(PRICE_CATALOG)) {
+    const factBody = JSON.stringify({ itemCode, ...item });
+    insFact.run({
+      id: `PF-${itemCode}`,
+      item_code: itemCode,
+      item_name: item.name,
+      category: item.category,
+      unit: item.unit,
+      reference_price: item.referencePrice,
+      ceiling_price: item.ceilingPrice,
+      collective_price: item.collectivePrice ?? null,
+      landed_regions_json: JSON.stringify(item.landedRegions),
+      effective_start: "2026-01-01",
+      effective_end: null,
+      jurisdiction: "national",
+      source_url: "seed://price-catalog",
+      source_hash: createHash("sha256").update(factBody).digest("hex").slice(0, 16),
+      confidentiality_level: "public",
+      fact_hash: createHash("sha256").update(factBody).digest("hex").slice(0, 16),
+      created_at: created,
+    });
+  }
 }
 
 export function ensureSeeded(): void {

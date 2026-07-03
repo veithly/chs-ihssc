@@ -15,6 +15,8 @@ import {
   workspaceNow,
 } from "../workspace/repo";
 import { runWorkspaceTools, type WorkspaceToolResult } from "./workspaceTools";
+import { applyLearnedRules } from "../workspace/rules";
+import { detectPolicyDrift } from "../workspace/drift";
 
 export interface WorkspaceRunInput {
   threadId: string;
@@ -205,6 +207,50 @@ export async function runWorkspaceAgent(
     insertRunEvent(db, thread.id, runId, "mutate", "续办规则已更新", `根据追问更新 ${followupChanged} 条已有流程任务。`, true, {
       followup_changed_tasks: followupChanged,
     });
+  }
+
+  // V2.2 政策漂移检测：baseline 从 policy_fact 现读（真相源），observed 用本次观察价。
+  // 政策更新（policy-update / artifact confirm）改了 policy_fact 后，这里会真实检出漂移。
+  const driftGroups = toolResult.basisPacks.map((bp) => {
+    const b = bp.basis as Record<string, unknown>;
+    return {
+      group_key: bp.group_key,
+      raw_item_code: (b.raw_item_code as string | null) ?? null,
+      catalog_matched: Boolean(b.catalog_matched),
+      observed_min: (b.observed_min as number | null) ?? null,
+      observed_max: (b.observed_max as number | null) ?? null,
+    };
+  });
+  const drift = detectPolicyDrift({ threadId: thread.id, runId, groups: driftGroups });
+  if (drift.detected > 0) {
+    insertRunEvent(
+      db,
+      thread.id,
+      runId,
+      "verify",
+      "政策漂移检测",
+      `对照 policy_fact 检出 ${drift.detected} 条政策漂移（critical ${drift.critical} / high ${drift.high} / medium ${drift.medium}），创建 ${drift.tasksCreated} 个「政策漂移复核」人审任务。`,
+      true,
+      { ...drift },
+    );
+  }
+
+  // V2 自学习规则引擎：对本次生成的 disposition 应用已激活的学习规则。
+  // 高置信 + 护栏通过 → 自动处置；低置信/敏感 → 转人审。全程写 approval_decision_log。
+  if (provider.ok) {
+    const learned = applyLearnedRules(thread.id, runId);
+    if (learned.autoApproved > 0 || learned.escalatedToHuman > 0) {
+      insertRunEvent(
+        db,
+        thread.id,
+        runId,
+        "learn",
+        "学习规则引擎",
+        `自动处置 ${learned.autoApproved} 条，转人审 ${learned.escalatedToHuman} 条。`,
+        true,
+        { ...learned },
+      );
+    }
   }
 
   addMessage(thread.id, "assistant", answer, {
@@ -443,7 +489,8 @@ function persistRun(input: {
      (id, thread_id, run_id, disposition_id, task_type, owner_role, status, priority, due_at, title, detail, created_at, updated_at)
      VALUES (:id, :thread_id, :run_id, :disposition_id, :task_type, :owner_role, :status, :priority, :due_at, :title, :detail, :created_at, :updated_at)`,
   );
-  for (const d of input.toolResult.dispositions.slice(0, 8)) {
+  // 每条处置项都要有对应流程任务（可审批对象闭环）；上限 24 防止超大上传刷屏。
+  for (const d of input.toolResult.dispositions.slice(0, 24)) {
     const isData = d.next_action.includes("数据治理") || d.issue_type.includes("schema");
     const isCollective = d.issue_type.includes("collective");
     insTask.run({
@@ -619,7 +666,8 @@ function applyFollowupPolicyIfNeeded(
         `UPDATE workflow_task
          SET task_type = '数据治理确认', owner_role = '数据治理岗', status = '待确认',
              priority = 'high', detail = detail || '；按追问先转数据治理确认。', updated_at = :updated_at
-         WHERE thread_id = :thread_id AND (title LIKE '%单位%' OR detail LIKE '%单位%' OR task_type != '数据治理确认')`,
+         WHERE thread_id = :thread_id AND task_type != '政策漂移复核'
+           AND (title LIKE '%单位%' OR detail LIKE '%单位%' OR task_type != '数据治理确认')`,
       )
       .run({ thread_id: threadId, updated_at: now });
     changed += Number(result.changes ?? 0);

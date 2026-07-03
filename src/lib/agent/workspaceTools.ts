@@ -351,12 +351,15 @@ export function runWorkspaceTools(
     basisPacks.push({
       group_key: groupKey,
       basis: {
+        // 展示用快照（目录参考值）；漂移检测的 baseline 一律从 policy_fact 现读，不用这份快照。
         reference_price: item?.referencePrice ?? null,
         ceiling_price: item?.ceilingPrice ?? null,
         collective_price: item?.collectivePrice ?? null,
         landed_regions: item?.landedRegions ?? [],
         observed_min: priceValues.length ? Math.min(...priceValues) : null,
         observed_max: priceValues.length ? Math.max(...priceValues) : null,
+        raw_item_code: rows[0]?.item_code ?? null,
+        catalog_matched: Boolean(item),
       },
     });
     evaluations.push({

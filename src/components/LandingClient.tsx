@@ -7,14 +7,18 @@ import {
   ArrowRightIcon,
   CheckCircledIcon,
   LightningBoltIcon,
-  PaperPlaneIcon,
-  LoopIcon,
   TargetIcon,
 } from "@radix-ui/react-icons";
 import type { LandingSnapshot } from "@/lib/workspace/landingSnapshot";
 import type { ProviderStatus } from "@/lib/env";
 
-const PROMPTS: { key: string; label: string; text: string }[] = [
+const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = [
+  {
+    key: "drift_review_loop",
+    label: "核完并闭环处置这批机构执行价异常",
+    text: "请对照最新政策事实核完这批机构执行价：检出政策漂移并生成复核任务；命中已激活规则的直接自动处置；其余转人审；人审结论沉淀为规则候选。",
+    hero: true,
+  },
   {
     key: "repair_price_batch",
     label: "核完并修复这批价格数据",
@@ -26,64 +30,68 @@ const PROMPTS: { key: string; label: string; text: string }[] = [
     text: "请找出集采落地差异，并生成需要催办的机构口径和内部流程任务。",
   },
   {
-    key: "match_first",
-    label: "把同品同规先归并，拿不准的问我",
-    text: "请先把同品同规归并。高置信的直接建组，拿不准的只提出确认问题。",
-  },
-  {
-    key: "parse_replies",
-    label: "解析机构回函，更新昨日续办",
-    text: "请解析机构回函，提取价格、原因、承诺时间和缺失材料，并更新昨日续办任务。",
-  },
-  {
     key: "data_governance",
     label: "生成需要发起的数据治理确认",
     text: "请生成需要发起的数据治理确认。缺字段、缺包装单位和编码不稳的项先不要催医院。",
   },
 ];
 
-const LADDER: { phase: string; title: string; chip: string; detail: string }[] = [
+const LADDER: { phase: string; title: string; chip: string; detail: string; pain?: string }[] = [
   {
     phase: "observe",
     title: "读上下文",
     chip: "table_parser · source_connector",
-    detail: "上传 CSV 或连接演示数据源；读取字段、行、回函和昨日未完。",
+    detail: "上传 CSV 或连接演示数据源；读取字段、行、政策事实与昨日未完。",
   },
   {
     phase: "plan",
     title: "排计划",
     chip: "planner",
-    detail: "选择核价 / 标化 / 修复 / 催办 / 流程发起路径；高置信先做，拿不准先问。",
+    detail: "选择核价 / 修复 / 漂移复核 / 催办路径；高置信先做，拿不准先问。",
   },
   {
     phase: "tools",
     title: "跑工具",
-    chip: "field_mapper · repair_writer · matcher · converter · rule_evaluator",
-    detail: "字段映射、单位换算、同品归并、价格对齐、规则评估，结果都是结构化对象。",
+    chip: "field_mapper · matcher · converter · rule_evaluator",
+    detail: "字段映射、单位换算、同品归并、价格对齐，结果都是结构化对象。",
   },
   {
     phase: "mutate",
     title: "写状态",
     chip: "writer · draft_generator · workflow_router",
-    detail: "修复 patch、归并组、价格口径、处置篮、机构草稿、流程任务写入 SQLite。",
+    detail: "修复 patch、漂移记录、复核任务、机构草稿全部写入 SQLite。",
+  },
+  {
+    phase: "drift",
+    title: "盯政策",
+    chip: "policy_fact · policy_drift_log",
+    detail: "对照政策事实基线复核每一条执行价；政策一变，昨天合规的今天自动标红。",
+    pain: "政策跟不住",
+  },
+  {
+    phase: "learn",
+    title: "学人审",
+    chip: "approval_decision_log · rule_candidate",
+    detail: "人审结论按（问题类型 × 严重度 × 处置动作）聚合成规则候选，激活后同类自动处置。",
+    pain: "规则负担重",
   },
   {
     phase: "verify",
-    title: "复查 + 追问",
-    chip: "verifier · recover",
-    detail: "数量与算术可复算；缺字段或口径不清转人工确认，不假成功。",
+    title: "复查 + 留痕",
+    chip: "verifier · guardrail",
+    detail: "数量与算术可复算；敏感项永远人审；每一次自动/人审决策都进决策日志。",
   },
 ];
 
 const PRODUCT_LOOP: { label: string; into: string }[] = [
+  { label: "政策事实", into: "policy_fact · policy_artifact" },
   { label: "上传/连接", into: "uploaded_dataset · data_source_connection" },
   { label: "字段映射", into: "field_mapping" },
   { label: "修复 patch", into: "repair_patch" },
-  { label: "同品归并", into: "match_group" },
-  { label: "价格口径", into: "price_basis_pack · unit_conversion" },
-  { label: "处置篮", into: "disposition_item" },
-  { label: "机构草稿", into: "institution_draft" },
-  { label: "流程任务", into: "workflow_task" },
+  { label: "漂移记录", into: "policy_drift_log" },
+  { label: "复核任务", into: "workflow_task" },
+  { label: "决策日志", into: "approval_decision_log" },
+  { label: "规则候选", into: "rule_candidate" },
 ];
 
 interface LandingClientProps {
@@ -144,24 +152,6 @@ function useInView<T extends Element>(opts?: IntersectionObserverInit) {
 export function LandingClient({ initial, providerStatus }: LandingClientProps) {
   const router = useRouter();
   const { snapshot, stats, latestRunId } = initial;
-  const [now, setNow] = useState<string>("");
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const update = () => {
-      const d = new Date();
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      setNow(`${hh}:${mm}:${ss}`);
-    };
-    update();
-    const id = setInterval(() => {
-      update();
-      setFrame((f) => (f + 1) % 100000);
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
 
   function sendPrompt(prompt: { key: string; text: string }) {
     const params = new URLSearchParams({ prompt: prompt.key, text: prompt.text });
@@ -180,15 +170,6 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
 
   return (
     <main className="landing-shell" data-visual-lane="regulated-public-service-conversation-workbench">
-      <SystemStrip
-        providerStatus={providerStatus}
-        threadId={snapshot.thread?.id ?? null}
-        runId={latestRunId}
-        rowsScanned={stats.rowsScanned}
-        now={now}
-        frame={frame}
-      />
-
       <section className="landing-hero" data-landing-hero>
         <div className="landing-hero-grid">
           <div className="landing-hero-text">
@@ -196,14 +177,14 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
               <span className="mono">价序 · JIA XU</span>
             </div>
             <h1>
-              把表格或数据源交给<span className="landing-mark">价序</span>，
+              政策一变，昨天核过的价<span className="landing-mark">今天就可能不合规</span>。
               <br />
-              直接说你要完成的价格治理工作。
+              价序盯政策、核价格、闭环处置。
             </h1>
             <p className="landing-lead">
-              它会读字段、归并同品、换算单位、对齐价格、筛掉假异常，
-              把可以处置的项写成机构核实草稿和流程任务，所有状态写入 SQLite，
-              可回放、可追问、可退回人工确认。
+              它对照最新政策事实复核每一批机构执行价：检出漂移生成复核任务，
+              命中已激活规则的自动处置，其余转人审；人审结论沉淀为规则候选，
+              越用越省人。所有状态与决策写入 SQLite，可回放、可审计。
             </p>
             <div className="landing-cta-row">
               <Link href="/workspace" className="landing-cta primary" data-cta-primary>
@@ -227,8 +208,6 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
             hasLiveRun={stats.hasLiveRun}
             rowsScanned={stats.rowsScanned}
             runId={latestRunId}
-            threadId={snapshot.thread?.id ?? null}
-            frame={frame}
           />
         </div>
 
@@ -240,7 +219,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
             <button
               key={p.key}
               type="button"
-              className="prompt-chip-landing"
+              className={`prompt-chip-landing${p.hero ? " hero" : ""}`}
               data-prompt-chip
               data-prompt-key={p.key}
               onClick={() => sendPrompt(p)}
@@ -263,72 +242,16 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
   );
 }
 
-function SystemStrip({
-  providerStatus,
-  threadId,
-  runId,
-  rowsScanned,
-  now,
-  frame,
-}: {
-  providerStatus: ProviderStatus;
-  threadId: string | null;
-  runId: string | null;
-  rowsScanned: number;
-  now: string;
-  frame: number;
-}) {
-  return (
-    <div className="system-strip mono" data-system-strip aria-hidden={false}>
-      <span className="system-strip-cell">
-        <span className="system-strip-label">SYS</span>
-        <span>价序 · price-governance agent</span>
-      </span>
-      <span className="system-strip-cell">
-        <span className="system-strip-label">PROVIDER</span>
-        <span className={providerStatus.configured ? "ok" : "warn"}>
-          <span className="status-dot" aria-hidden />
-          {providerStatus.configured ? providerStatus.baseUrlHost : "未配置"}
-        </span>
-      </span>
-      <span className="system-strip-cell">
-        <span className="system-strip-label">THREAD</span>
-        <span>{threadId ? threadId.slice(0, 18) : "—"}</span>
-      </span>
-      <span className="system-strip-cell">
-        <span className="system-strip-label">RUN</span>
-        <span>{runId ? runId.slice(0, 18) : "idle"}</span>
-      </span>
-      <span className="system-strip-cell">
-        <span className="system-strip-label">ROWS</span>
-        <span>{rowsScanned}</span>
-      </span>
-      <span className="system-strip-cell system-strip-clock">
-        <span className="system-strip-label">CLOCK</span>
-        <span>{now || "--:--:--"}</span>
-      </span>
-      <span className="system-strip-cell system-strip-frame">
-        <span className="system-strip-label">FRAME</span>
-        <span>{String(frame).padStart(5, "0")}</span>
-      </span>
-    </div>
-  );
-}
-
 function LiveWorkspaceCard({
   stats,
   hasLiveRun,
   rowsScanned,
   runId,
-  threadId,
-  frame,
 }: {
   stats: { label: string; value: number; hint: string }[];
   hasLiveRun: boolean;
   rowsScanned: number;
   runId: string | null;
-  threadId: string | null;
-  frame: number;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   return (
@@ -336,13 +259,12 @@ function LiveWorkspaceCard({
       <div className="lwc-head">
         <div>
           <div className="lwc-title">
-            <span className="agent-mark" aria-hidden>价</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
             <strong>最近一次 agent run</strong>
           </div>
           <div className="lwc-sub mono">
-            <span>{threadId ? threadId.slice(0, 18) : "—"}</span>
-            <span className="pane-sub-sep" aria-hidden />
-            <span>{runId ? runId.slice(0, 18) : "idle"}</span>
+            <span>{runId ? runId.slice(0, 18) : "等待第一次任务"}</span>
           </div>
         </div>
         <span className={`lwc-state ${hasLiveRun ? "ok" : "idle"}`}>
@@ -361,7 +283,6 @@ function LiveWorkspaceCard({
         <span>
           <CheckCircledIcon /> 处置 {stats[3].value + stats[4].value} 项 · 行 {rowsScanned}
         </span>
-        <span className="lwc-frame">FRAME {String(frame).padStart(5, "0")}</span>
       </div>
 
       <div className="lwc-cta">
@@ -401,10 +322,10 @@ function ContentLadderSection() {
         <div className="agent-eyebrow">
           <span className="mono">AGENT LOOP · 智能体怎么工作</span>
         </div>
-        <h2>不是固定按钮，是会读、会规划、会修、会发起流程的工作台。</h2>
+        <h2>不是固定按钮：会盯政策、会复核、会学人审的价格治理 agent。</h2>
         <p className="landing-section-lead">
-          价序每跑一次任务，都会走完五步。每一步都把状态写到 SQLite，
-          评委可以从回放里看到它当时为什么这么做。
+          价序每跑一次任务走完七步。第 5 步对照政策事实抓漂移，第 6 步把人审结论学成规则。
+          每一步的状态都写 SQLite，回放能看到它当时为什么这么做。
         </p>
       </header>
       <ol className="content-ladder" data-content-ladder>
@@ -412,7 +333,10 @@ function ContentLadderSection() {
           <li key={r.phase} className="ladder-rung" data-ladder-rung={r.phase}>
             <span className="ladder-num mono">{String(i + 1).padStart(2, "0")}</span>
             <div className="ladder-body">
-              <strong>{r.title}</strong>
+              <strong>
+                {r.title}
+                {r.pain && <em className="ladder-pain">{r.pain}</em>}
+              </strong>
               <span>{r.detail}</span>
             </div>
             <span className="ladder-chip mono">{r.chip}</span>
@@ -430,9 +354,10 @@ function ProductLoopSection({ loop }: { loop: { label: string; into: string }[] 
         <div className="agent-eyebrow">
           <span className="mono">PRODUCT LOOP · 状态怎么落库</span>
         </div>
-        <h2>从一张表到一批可审批对象，全在 SQLite 里。</h2>
+        <h2>从政策事实到规则候选，闭环全在 SQLite 里。</h2>
         <p className="landing-section-lead">
-          评委改一个输入，下面每一格都会变。回放能查到每一行是怎么从原始字段走到流程任务的。
+          改一条政策事实，漂移、复核任务、决策日志、规则候选逐格变化。
+          回放能查到每一条规则是从哪几条人审决策学来的。
         </p>
       </header>
       <ol className="loop-track" data-loop-track>
@@ -457,7 +382,9 @@ function ProofSection({
   const proofs = [
     { k: "real_provider", label: "真实模型 provider", value: providerStatus.configured ? providerStatus.model : "未配置" },
     { k: "durable", label: "状态写入", value: "SQLite · node:sqlite" },
-    { k: "replay", label: "回放可查", value: "run_event · conversation_message" },
+    { k: "drift", label: "政策漂移可复现", value: "policy_fact 变更 → 重跑即检出" },
+    { k: "learn", label: "规则可审计", value: "rule_candidate ← source_decision_ids" },
+    { k: "guardrail", label: "敏感项永远人审", value: "麻醉/精神类 · critical 不自动" },
     { k: "recover", label: "失败不假成功", value: "auth_failed · recover → 人工确认" },
     { k: "data", label: "数据", value: "合成/脱敏 · 演示数据源" },
   ];
@@ -500,10 +427,11 @@ function LandingFooter() {
     <footer className="landing-footer" data-landing-footer>
       <div className="landing-footer-inner">
         <div className="landing-footer-brand">
-          <span className="agent-mark" aria-hidden>价</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
           <div>
             <strong>价序</strong>
-            <span className="mono">agent · v0.1 · 医药价格治理工作台</span>
+            <span className="mono">agent · v0.2 · 政策变更驱动的价格治理闭环</span>
           </div>
         </div>
         <div className="landing-footer-meta mono">

@@ -1,0 +1,12 @@
+<whiteboard type="mermaid">flowchart LR
+    HOME["首页 产品介绍"] --> WS["/workspace 对话式工作台"]
+    HOME --> RL["/release 批次放行闸门"]
+    HOME --> Q["/queue 核验队列"]
+    HOME --> IMP["/import CSV采集箱"]
+    HOME --> ST["/settings provider设置"]
+    WS -. "选prompt或输入指令" .-> WS2["字段映射 修复patch 同品归并 流程任务"]
+    RL --> Scan["一键扫描整批"]
+    Scan --> Res["/result 结果"]
+    Res --> Rep["/replay 回放"]
+    Res --> App["/approval 人审"]
+    Res --> Prf["/proof 凭证"]</whiteboard>

@@ -1,5 +1,4 @@
 import "server-only";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { getDb } from "./db";
 import { ensureSeeded } from "./seed";
 import {
@@ -25,7 +24,7 @@ import {
 } from "./types";
 
 let seeded = false;
-function ready(): DatabaseSync {
+function ready(): ReturnType<typeof getDb> {
   if (!seeded) {
     ensureSeeded();
     seeded = true;
@@ -34,7 +33,7 @@ function ready(): DatabaseSync {
 }
 
 // node:sqlite returns null-prototype Record rows; cast through unknown.
-type Params = Record<string, SQLInputValue>;
+type Params = Record<string, unknown>;
 function all<T>(sql: string, params?: Params): T[] {
   const stmt = ready().prepare(sql);
   return (params ? stmt.all(params) : stmt.all()) as unknown as T[];

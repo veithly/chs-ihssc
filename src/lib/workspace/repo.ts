@@ -1,6 +1,5 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { getDb } from "../db";
 import { getRows, listReleases } from "../repo";
 import type {
@@ -25,9 +24,9 @@ import type {
 import type { WorkspaceRawRow } from "./csv";
 import { DEMO_SOURCES, type DemoSourceId } from "./demoSources";
 
-type Params = Record<string, SQLInputValue>;
+type Params = Record<string, unknown>;
 
-function db(): DatabaseSync {
+function db(): ReturnType<typeof getDb> {
   return getDb();
 }
 
@@ -434,7 +433,7 @@ export function getWorkspaceSnapshot(threadId?: string | null): WorkspaceSnapsho
   };
 }
 
-export function workspaceDb(): DatabaseSync {
+export function workspaceDb(): ReturnType<typeof getDb> {
   return db();
 }
 

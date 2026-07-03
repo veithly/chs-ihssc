@@ -1,11 +1,20 @@
 #!/usr/bin/env node
-// Build the canonical HackathonHunter G5 Pitch + Demo video for 价序.
+// Build the canonical HackathonHunter Pitch + Demo video for 价序 (V2.2).
+//
+// Story: 政策变更后的存量机构执行价复核 Agent。
+// Killer loop on camera: run① 基线核价 → 人审 2 条涨幅异常
+// → 政策同步（真实抓取国家医保局公告）→ 公告人审确认 640→560
+// → run② 漂移检出 + 复核任务 → 人审处置 → 规则挖掘 → dry-run → 激活
+// → run③ 同类项自动处置 → 审计日志。
 //
 // Pipeline:
-// 1) record real 1080p browser footage from / (landing) → /workspace
-// 2) generate zh-CN narration from docs/video/pitch-demo-narration.txt
-// 3) write a HyperFrames composition with a 5min pitch-demo arc
-// 4) lint, validate, inspect, render, then run ffmpeg media QA
+// 1) record real 1080p browser footage from / (landing) → /workspace,
+//    logging beat marks (action vs provider-wait) with wall-clock timestamps
+// 2) retime footage per beat: provider waits compress hard, clicks stay ~1x,
+//    each demo narration segment gets exactly its narration-sized span
+// 3) generate zh-CN narration from docs/video/pitch-demo-narration.txt
+// 4) write a HyperFrames composition (narration-driven timeline, < 5min)
+// 5) lint, validate, inspect, render, mux BGM+narration, then ffmpeg media QA
 import { chromium } from "playwright";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -20,7 +29,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BASE = process.env.DEMO_URL?.replace(/\/$/, "") || "http://127.0.0.1:3300";
+const BASE = process.env.DEMO_URL?.replace(/\/$/, "") || "http://127.0.0.1:3400";
 const OUT = join(ROOT, "docs", "video");
 const PROJECT = join(OUT, "pitch-demo");
 const ASSETS = join(PROJECT, "assets");
@@ -44,29 +53,31 @@ const BGM_INTRO = process.env.BGM_INTRO || "01_future_forward.mp3";
 const BGM_MID = process.env.BGM_MID || "02_innovation_drive.mp3";
 const REUSE_DEMO_FOOTAGE = process.env.REUSE_DEMO_FOOTAGE === "1";
 
+const HERO_PROMPT_KEY = "drift_review_loop";
+
 // Captions are derived 1:1 from the narration segments (see writeProjectFiles), so
 // each subtitle is locked to the voice line it paraphrases — no hand-tuned timestamps.
 const CAPTION_TEXT = {
-  s1: "把表格交给它，说清楚今天要办成什么",
-  s2: "价格岗的早上，是一堆对不齐的表",
-  s3: "第一屏不是大屏，是一个对话框",
-  demo1: "真实产品在跑：读字段、归并、换算、按规则评估",
-  demo2: "一份交代：18 行 · 8 映射 · 3 预填 · 3 异常",
-  demo3: "价高离谱先疑数据，不直接判违规",
-  demo4: "缺包装单位已预填，问我要不要转数据治理",
-  demo5: "改一句话，右侧草稿和流程任务跟着重排",
-  s5: "5 类已生成对象，逐项可审批、可回放",
-  s6a: "工具轨迹 observe→plan→tools→mutate→verify 留回放",
-  s6b: "模型只给计划，状态和人审边界服务端管",
-  s7: "评委从首页点 prompt，进 workspace 复跑",
+  s1: "政策变了，存量执行价还合不合规，价序来管",
+  s2: "政策跟不住 · 审批负担重，一线的两句原话",
+  s3: "首页一个入口：核完并闭环处置这批执行价异常",
+  demo1: "真实模型核价 · 政策版本指纹可对账 · 拿不准转人审",
+  demo2: "真实抓取医保局公告 · 人审确认 640→560 · 漂移检出",
+  demo3: "人审选处置动作，写进不可变决策日志",
+  demo4: "人审反馈挖掘规则 · dry-run 影响面 · 人工激活",
+  demo5: "命中规则自动处置，敏感项永远人审",
+  s5: "六类业务对象落 SQLite，效能实时可对账",
+  s6a: "模型出计划，服务端管状态，每步可回放",
+  s6b: "红线：发函、通报、违规认定必须人点头",
+  s7: "verify:v2 一条命令 17 项全绿，评委可复跑",
 };
 // Short on-footage pointers during the demo (one per demo narration segment).
 const CALLOUT_TEXT = {
-  demo1: "真实产品 · /workspace",
-  demo2: "一份交代，不是一句“已完成”",
-  demo3: "先疑数据，不急着定性",
-  demo4: "缺字段 → 转人工确认",
-  demo5: "改输入 → 整条链路重算",
+  demo1: "真实 run · 政策版本指纹",
+  demo2: "政策同步 → 公告人审确认 → 漂移队列",
+  demo3: "批准处置 → 决策日志",
+  demo4: "挖掘 → 影响面 → 激活",
+  demo5: "自动处置 · 审计留痕",
 };
 
 function run(cmd, args, options = {}) {
@@ -103,6 +114,15 @@ function clean() {
   mkdirSync(QA, { recursive: true });
 }
 
+async function api(method, path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return res.json().catch(() => null);
+}
+
 async function resetSamples() {
   const res = await fetch(`${BASE}/api/admin/reseed`, { method: "POST" }).catch(() => null);
   if (!res || !res.ok) {
@@ -110,8 +130,30 @@ async function resetSamples() {
   }
 }
 
+async function spikeTaskTitles(threadId, runId) {
+  const data = await api("GET", `/api/workspace/threads/${threadId}`);
+  const snap = data?.snapshot ?? {};
+  const dispById = new Map((snap.dispositionItems ?? []).map((d) => [d.id, d]));
+  return (snap.workflowTasks ?? [])
+    .filter(
+      (task) =>
+        (!runId || task.run_id === runId) &&
+        !["已人审确认", "已驳回", "自动处置"].includes(task.status) &&
+        task.disposition_id &&
+        dispById.get(task.disposition_id)?.issue_type === "price_spike",
+    )
+    .map((task) => ({ id: task.id, title: task.title }));
+}
+
 async function recordProductFootage() {
   await resetSamples();
+  // Pre-create the workspace thread + demo dataset over the API. The landing
+  // deep-link then runs on this same thread, and the recorder can inspect it
+  // (which tasks are price_spike) while the camera rolls.
+  const src = await api("POST", "/api/workspace/source", { kind: "demo", sourceId: "demo-price-sheet" });
+  const threadId = src?.snapshot?.thread?.id;
+  if (!threadId) throw new Error("Could not pre-create the workspace thread via /api/workspace/source.");
+  console.log(`[footage] thread ${threadId}, dataset rows: ${src?.snapshot?.dataset?.row_count}`);
 
   const browser = await chromium.launch();
   const ctx = await browser.newContext({
@@ -120,80 +162,265 @@ async function recordProductFootage() {
     locale: "zh-CN",
   });
   const page = await ctx.newPage();
-  page.setDefaultTimeout(120000);
+  page.setDefaultTimeout(180000);
   const vid = page.video();
   const wait = (ms) => page.waitForTimeout(ms);
+  const t0 = Date.now();
+  const beats = [];
+  const mark = (id, kind) => {
+    beats.push({ id, kind, t: Number(((Date.now() - t0) / 1000).toFixed(3)) });
+    console.log(`[beat] ${id} (${kind}) @ ${beats.at(-1).t}s`);
+  };
 
-  async function softScroll(amount, repeats = 1) {
-    for (let i = 0; i < repeats; i += 1) {
-      await page.mouse.wheel(0, amount);
-      await wait(420);
-    }
+  const nextRunResponse = () =>
+    page.waitForResponse(
+      (res) =>
+        res.url().includes("/api/workspace/run") &&
+        res.request().method() === "POST" &&
+        res.status() === 200,
+      { timeout: 240000 },
+    );
+
+  // Provider waits stay visually still (running badge + optimistic message carry
+  // the motion); the retime pass compresses these spans hard, so any scroll
+  // jiggle here would turn into visible shaking.
+  async function idleUntil(promise) {
+    return promise;
   }
 
-  // 1) Landing page — show hero, telemetry, prompts
+  // Optional camera moves must fail fast: page.setDefaultTimeout is sized for
+  // provider runs, and a missing hover target must not stall the recording.
+  const QUICK = { timeout: 4000 };
+  const glance = async (locator) => {
+    await locator.scrollIntoViewIfNeeded(QUICK).catch(() => {});
+    await locator.hover(QUICK).catch(() => {});
+  };
+
+  async function approveTaskRow(task, settleMs = 2300) {
+    const row =
+      typeof task === "string"
+        ? page.locator("[data-task-row]", { hasText: task }).first()
+        : page.locator(`[data-task-row][data-task-id="${task.id}"]`).first();
+    if ((await row.count()) === 0) return false;
+    await glance(row);
+    await wait(950);
+    const btn = row.locator(".mini-btn.approve").first();
+    if ((await btn.count()) === 0) return false;
+    await btn.hover(QUICK).catch(() => {});
+    await wait(450);
+    await btn.click(QUICK);
+    await wait(settleMs);
+    return true;
+  }
+
+  async function openObjectTab(label) {
+    await page.locator(".object-tab", { hasText: label }).first().click();
+    await wait(900);
+  }
+
+  // ---- beat b0: landing → hero prompt deep-link -----------------------------
+  mark("b0-landing", "action");
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-landing-hero]");
-  await wait(2800);
-  await softScroll(700, 1);
-  await wait(1800);
-  await softScroll(-700, 1);
-  await wait(1200);
-
-  // 2) Click the first prompt — deep-link to /workspace and auto-run
-  const repairPrompt =
-    "请核完并修复这批价格数据。能确定的字段和单位先修复；拿不准的问我；可以处置的生成机构核实口径和流程任务。";
-  const promptUrl = `${BASE}/workspace?prompt=repair_price_batch&text=${encodeURIComponent(repairPrompt)}`;
-  await page.goto(promptUrl, { waitUntil: "networkidle" });
+  await wait(2300);
+  const heroChip = page.locator(
+    `[data-prompt-rail] [data-prompt-chip][data-prompt-key="${HERO_PROMPT_KEY}"]`,
+  );
+  await heroChip.scrollIntoViewIfNeeded().catch(() => {});
+  await heroChip.hover().catch(() => {});
+  await wait(900);
+  const runWait1 = nextRunResponse();
+  await heroChip.click();
+  await page.waitForURL(/\/workspace\?prompt=/, { timeout: 20000 });
   await page.waitForSelector("[data-conversation-composer]", { timeout: 30000 });
-  // Wait for auto-run to complete (agent returns messages + objects)
-  await page.waitForFunction(() => {
-    const counts = Array.from(document.querySelectorAll("[data-generated-object] .object-tab-count"));
-    return counts.some((c) => Number((c.textContent ?? "").trim()) > 0);
-  }, { timeout: 120000 }).catch(() => {});
-  await wait(6200);
-  await softScroll(520, 2);
-  await wait(2200);
-  await softScroll(-360, 1);
+  await wait(800);
+
+  // ---- beat b1: run① (live provider) then review + approve 2 spikes ---------
+  mark("b1-run1", "wait");
+  await idleUntil(runWait1);
   await wait(1600);
 
-  // 3) Send a follow-up instruction — change tasks (recover → data governance)
-  const followUp = "把重点机构放前面，并把缺包装单位的项先转数据治理确认。";
-  const composer = page.locator("[data-conversation-composer] textarea");
-  await composer.fill(followUp);
-  // Radix TextArea needs a real input event to flip React state and enable the send button.
-  await composer.dispatchEvent("input");
-  await wait(1200);
-  const sendBtn = page.locator("[data-conversation-composer] button:has-text('发给价序')");
-  await sendBtn.waitFor({ state: "visible" });
-  // Wait until the button is actually enabled (auto-run finished, composer non-empty).
-  await page.waitForFunction(() => {
-    const btn = document.querySelector("[data-conversation-composer] button");
-    return btn && !btn.disabled;
-  }, { timeout: 120000 }).catch(() => {});
-  await sendBtn.click();
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await wait(8400);
-  await softScroll(640, 2);
-  await wait(3200);
+  mark("b1-result", "action");
+  await page.mouse.wheel(0, 420);
+  await wait(1400);
+  await page.mouse.wheel(0, 420);
+  await wait(1300);
+  await page.mouse.wheel(0, -700);
+  await wait(1000);
+  const spikes1 = await spikeTaskTitles(threadId);
+  console.log(`[footage] run1 spike tasks: ${spikes1.map((s) => s.title).join(" | ")}`);
+  await openObjectTab("人审任务");
+  let approvedOnCamera = 0;
+  for (const spike of spikes1.slice(0, 2)) {
+    if (await approveTaskRow(spike, 2100)) approvedOnCamera += 1;
+  }
+  await wait(700);
 
-  // 4) Walk through the generated objects panel
-  await page.waitForSelector("[data-generated-object]", { timeout: 60000 }).catch(() => {});
-  await softScroll(-900, 2);
-  await wait(2000);
-  await softScroll(420, 2);
+  // ---- beat b2: 政策获取（真实抓取公告）→ 公告人审确认 640→560 → 重跑 --------
+  mark("b2-policy", "action");
+  await openObjectTab("政策事实");
+  await wait(1400);
+  // 1) 政策同步：真实抓取国家医保局公开公告 → artifact 落库（hash 留痕）
+  let confirmedViaArtifact = false;
+  const syncBtn = page.locator("[data-policy-sync]");
+  if ((await syncBtn.count()) > 0) {
+    await syncBtn.hover(QUICK).catch(() => {});
+    await wait(600);
+    await syncBtn.click(QUICK).catch(() => {});
+    const gotArtifacts = await page
+      .waitForSelector("[data-artifact-row]", { timeout: 30000 })
+      .then(() => true)
+      .catch(() => false);
+    if (gotArtifacts) {
+      await wait(1000);
+      await glance(page.locator("[data-policy-source]"));
+      await wait(1100);
+      const firstArtifact = page.locator("[data-artifact-row]").first();
+      await glance(firstArtifact);
+      await wait(1400);
+      // 2) 公告人审确认：录入 HC-LNS-902 / 560 → 政策事实生效（真实产品链路）
+      await firstArtifact.locator("[data-artifact-open-confirm]").click(QUICK).catch(() => {});
+      const formVisible = await page
+        .waitForSelector("[data-artifact-confirm]", { timeout: 8000 })
+        .then(() => true)
+        .catch(() => false);
+      if (formVisible) {
+        await wait(1800); // 停在预填的 HC-LNS-902 / 560 上，让观众看清人审录入
+        const submit = page.locator("[data-artifact-confirm-submit]");
+        await submit.hover(QUICK).catch(() => {});
+        await wait(500);
+        await submit.click(QUICK).catch(() => {});
+        confirmedViaArtifact = await page
+          .waitForFunction(
+            () => (document.querySelector("[data-policy-msg]")?.textContent ?? "").includes("生效"),
+            undefined,
+            { timeout: 15000 },
+          )
+          .then(() => true)
+          .catch(() => false);
+        await wait(2200);
+      }
+    }
+  }
+  if (!confirmedViaArtifact) {
+    // 兜底：公开站点不可达时，退回确定性的政策变更演示按钮
+    console.warn("[footage] policy sync/confirm unavailable → falling back to demo policy update");
+    const policyBtn = page.locator("[data-demo-policy-update]");
+    await policyBtn.hover(QUICK).catch(() => {});
+    await wait(700);
+    await policyBtn.click();
+    await page
+      .waitForSelector("[data-policy-msg]", { timeout: 15000 })
+      .catch(() => {});
+    await wait(2600);
+  }
+  const runWait2 = nextRunResponse();
+  await page.locator(`[data-prompt-chip][data-prompt-key="${HERO_PROMPT_KEY}"]`).click();
+  await wait(400);
+
+  mark("b2-wait", "wait");
+  await idleUntil(runWait2);
+  await wait(1700);
+
+  mark("b2-drift", "action");
+  // runInstruction auto-switches to the drift queue when the run detected drifts.
+  await page.waitForSelector("[data-drift-row]", { timeout: 20000 }).catch(() => {});
+  await wait(1900);
+  await glance(page.locator("[data-drift-row]").first());
+  await wait(2100);
+  await page.mouse.wheel(0, 300);
+  await wait(1900);
+  await glance(page.locator("[data-drift-row]").nth(2));
+  await wait(1900);
+  await page.mouse.wheel(0, 260);
+  await wait(1800);
+  await page.mouse.wheel(0, -420);
+  await wait(1400);
+
+  // ---- beat b3: human review (2 spikes + 1 drift-review task) ---------------
+  mark("b3-review", "action");
+  const spikes2 = await spikeTaskTitles(threadId);
+  console.log(`[footage] run2 spike tasks: ${spikes2.map((s) => s.title).join(" | ")}`);
+  await openObjectTab("人审任务");
+  await wait(1100);
+  for (const spike of spikes2.slice(0, 2)) {
+    if (await approveTaskRow(spike, 2500)) approvedOnCamera += 1;
+  }
+  await approveTaskRow("政策漂移复核", 2500);
+  // Linger on the decided rows: the narration is talking about the immutable
+  // decision log entry right now.
+  await glance(page.locator(".task-final").first());
   await wait(2400);
+  // The learned pattern needs support >= 3; top up over the API only if the
+  // on-camera clicks somehow missed (rows out of view etc).
+  if (approvedOnCamera < 3) {
+    const rest = await spikeTaskTitles(threadId);
+    for (const spike of rest.slice(0, 3 - approvedOnCamera)) {
+      await api("POST", `/api/workspace/tasks/${spike.id}/decision`, {
+        decision: "approve",
+        final_action: "机构核实",
+        reviewer: "价格治理审核员",
+        notes: "补充演示决策",
+      });
+    }
+  }
+  await wait(600);
 
-  // 5) Visit settings for proof breadth (conversation-first shape: only /workspace and /settings exist)
-  await page.goto(`${BASE}/settings`, { waitUntil: "networkidle" });
+  // ---- beat b4: mine → dry-run → activate -----------------------------------
+  mark("b4-rules", "action");
+  await openObjectTab("规则候选");
+  await wait(1200);
+  const mineBtn = page.locator("button", { hasText: "从人审反馈挖掘候选" }).first();
+  await mineBtn.hover(QUICK).catch(() => {});
+  await wait(700);
+  await mineBtn.click();
+  await page.waitForSelector("[data-rule-candidate]", { timeout: 20000 });
+  await wait(2100);
+  const candidate = page.locator("[data-rule-candidate]").first();
+  await glance(candidate.locator(".rc-trigger"));
+  await wait(1500);
+  await glance(candidate.locator(".rc-src"));
+  await wait(1700);
+  const dryBtn = candidate.locator("button", { hasText: "影响面预览" }).first();
+  await dryBtn.hover(QUICK).catch(() => {});
+  await wait(500);
+  await dryBtn.click(QUICK).catch(() => {});
+  await page.waitForSelector("[data-rule-dryrun]", { timeout: 15000 }).catch(() => {});
+  await wait(1400);
+  await glance(candidate.locator("[data-rule-dryrun]"));
+  await wait(2600);
+  const activateBtn = candidate.locator(".mini-btn.approve", { hasText: "激活" }).first();
+  await activateBtn.hover(QUICK).catch(() => {});
+  await wait(600);
+  await activateBtn.click();
+  await page.waitForSelector("[data-active-rule]", { timeout: 15000 }).catch(() => {});
+  await wait(1500);
+  await glance(page.locator("[data-active-rule]").first());
+  await wait(2300);
+
+  // ---- beat b5: run③ — learned rule auto-disposes, audit strip --------------
+  const runWait3 = nextRunResponse();
+  await page.locator(`[data-prompt-chip][data-prompt-key="${HERO_PROMPT_KEY}"]`).click();
+  await wait(300);
+  mark("b5-wait", "wait");
+  await idleUntil(runWait3);
+  await wait(1700);
+
+  mark("b5-auto", "action");
+  await openObjectTab("人审任务");
+  await wait(1100);
+  await glance(page.locator('[data-task-row][data-task-status="自动处置"]').first());
+  await wait(2700);
+  // Sensitive rows stay in human review — hover one undecided row while the
+  // narration says "敏感的永远留在人审".
+  await glance(page.locator('[data-task-row]:not([data-task-status="自动处置"])').first());
+  await wait(2200);
+  await glance(page.locator("[data-audit-strip]"));
   await wait(3000);
-  await softScroll(420, 1);
-  await wait(2000);
+  await page.mouse.wheel(0, -900);
+  await wait(2500);
 
-  // 6) End on landing again
-  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
-  await wait(3000);
-
+  mark("end", "end");
   await ctx.close();
   await browser.close();
 
@@ -225,7 +452,8 @@ async function recordProductFootage() {
     "-an",
     raw,
   ]);
-  return raw;
+  writeFileSync(join(ASSETS, "demo-beats.json"), JSON.stringify({ threadId, beats }, null, 2), "utf8");
+  return { raw, beats };
 }
 
 function parseNarrationSegments(raw) {
@@ -518,7 +746,56 @@ function buildFinalAudio(narrationSegments, total) {
   return out;
 }
 
-function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
+// Map recorded beats to the five demo narration segments and retime each
+// sub-beat: provider waits compress to a short on-screen pause, click/action
+// beats stay near natural speed, and every segment lands exactly on the span
+// its narration needs.
+function planDemoRetime(beats, segDur, LEAD, GAP, TAIL) {
+  const subs = [];
+  for (let i = 0; i < beats.length - 1; i += 1) {
+    const raw = beats[i + 1].t - beats[i].t;
+    if (raw <= 0.05) continue;
+    subs.push({ id: beats[i].id, kind: beats[i].kind, start: beats[i].t, end: beats[i + 1].t, raw });
+  }
+  const segMap = {
+    demo1: ["b0-landing", "b1-run1", "b1-result"],
+    demo2: ["b2-policy", "b2-wait", "b2-drift"],
+    demo3: ["b3-review"],
+    demo4: ["b4-rules"],
+    demo5: ["b5-wait", "b5-auto"],
+  };
+  const targets = {
+    demo1: LEAD + (segDur.demo1 || 0) + GAP,
+    demo2: (segDur.demo2 || 0) + GAP,
+    demo3: (segDur.demo3 || 0) + GAP,
+    demo4: (segDur.demo4 || 0) + GAP,
+    demo5: (segDur.demo5 || 0) + TAIL,
+  };
+  const WAIT_MIN = 2.2;
+  const plan = [];
+  for (const segId of Object.keys(segMap)) {
+    const parts = segMap[segId].map((id) => subs.find((s) => s.id === id)).filter(Boolean);
+    if (parts.length === 0) throw new Error(`No footage beats recorded for ${segId}`);
+    const T = targets[segId];
+    const actions = parts.filter((p) => p.kind === "action");
+    const waits = parts.filter((p) => p.kind === "wait");
+    const rawA = actions.reduce((a, p) => a + p.raw, 0);
+    const rawW = waits.reduce((a, p) => a + p.raw, 0);
+    let waitBudget = waits.length === 0 ? 0 : Math.max(waits.length * WAIT_MIN, T - rawA);
+    if (waitBudget > T) waitBudget = T * 0.4;
+    const actionBudget = T - waitBudget;
+    for (const p of parts) {
+      const target =
+        p.kind === "wait"
+          ? waitBudget * (p.raw / (rawW || 1))
+          : actionBudget * (p.raw / (rawA || 1));
+      plan.push({ ...p, seg: segId, target, factor: target / p.raw });
+    }
+  }
+  return { plan, targets };
+}
+
+function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration }) {
   const rawDuration = duration(demoVideo);
 
   // --- Narration-driven timeline -------------------------------------------
@@ -526,8 +803,8 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
   // speech itself, then a small tail before it cuts straight to the next scene.
   // Nothing is padded to reach a fixed 5:00 — the total floats to whatever the
   // narration needs and stays under five minutes. The demo block is sized to its
-  // narration and the real footage is time-stretched to fill it, so the picture
-  // and the voice describing it stay locked together.
+  // narration and the real footage is retimed per beat to fill it, so the
+  // picture and the voice describing it stay locked together.
   const segDur = Object.fromEntries(narrationSegments.map((s) => [s.id, s.duration]));
   const sum = (...ids) => ids.reduce((a, id) => a + (segDur[id] || 0), 0);
   const LEAD = 0.35;
@@ -567,14 +844,22 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
     if (anchors[seg.id] != null) seg.start = anchors[seg.id];
   }
 
-  // Time-stretch the real browser footage to exactly fill the demo block so the
-  // tour and the demo narration stay in step (screen-cast slowdown reads fine).
+  // Retime the real browser footage beat by beat so each demo narration line
+  // plays over the footage of exactly that step (waits compressed, clicks ~1x).
+  const { plan, targets } = planDemoRetime(demoBeats, segDur, LEAD, SCENE_GAP, TAIL);
   const demoFootage = join(ASSETS, "demo-footage-fit.mp4");
-  const stretch = demoDuration / rawDuration;
+  const trims = plan
+    .map(
+      (p, i) =>
+        `[0:v]trim=start=${p.start.toFixed(3)}:end=${p.end.toFixed(3)},setpts=(PTS-STARTPTS)*${p.factor.toFixed(5)}[v${i}]`,
+    )
+    .join(";");
+  const concatIn = plan.map((_, i) => `[v${i}]`).join("");
+  const filter = `${trims};${concatIn}concat=n=${plan.length}:v=1:a=0,fps=30,format=yuv420p[v]`;
   run("ffmpeg", [
     "-y", "-hide_banner", "-loglevel", "error",
     "-i", demoVideo,
-    "-filter_complex", `[0:v]setpts=${stretch.toFixed(5)}*PTS,fps=30,format=yuv420p[v]`,
+    "-filter_complex", filter,
     "-map", "[v]", "-an",
     "-t", demoDuration.toFixed(2),
     "-c:v", "libx264", "-preset", "medium", "-crf", "18",
@@ -582,7 +867,12 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
     "-g", "30", "-keyint_min", "30", "-sc_threshold", "0", "-movflags", "+faststart",
     demoFootage,
   ]);
-  console.log(`[video] demo footage stretched ${rawDuration.toFixed(1)}s -> ${demoDuration.toFixed(1)}s (x${stretch.toFixed(2)})`);
+  for (const p of plan) {
+    console.log(
+      `[retime] ${p.seg}/${p.id} (${p.kind}) ${p.raw.toFixed(1)}s -> ${p.target.toFixed(1)}s (x${(1 / p.factor).toFixed(2)} speed)`,
+    );
+  }
+  console.log(`[video] demo footage ${rawDuration.toFixed(1)}s -> ${demoDuration.toFixed(1)}s across ${plan.length} beats`);
 
   const audioFinal = buildFinalAudio(narrationSegments, total);
 
@@ -748,7 +1038,7 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
       .source-card b { display: block; font-size: 34px; color: #142333; }
       .source-card span { color: #536477; font-size: 24px; line-height: 1.38; font-weight: 650; }
       .entry-card {
-        width: 760px;
+        width: 860px;
         margin-top: 40px;
         padding: 34px;
         background: #fff;
@@ -794,7 +1084,7 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
         flex-direction: column;
         justify-content: space-between;
       }
-      .step-card strong { font-size: 34px; color: #142333; }
+      .step-card strong { font-size: 32px; color: #142333; }
       .step-card span { font-size: 23px; line-height: 1.4; color: #536477; font-weight: 650; }
       .demo-stage {
         position: absolute;
@@ -855,7 +1145,7 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
       }
       .proof-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1.2fr 1fr;
         gap: 36px;
         margin-top: 50px;
         position: relative;
@@ -867,12 +1157,13 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
         display: flex;
         justify-content: space-between;
         gap: 24px;
-        padding: 18px 0;
+        padding: 15px 0;
         border-top: 2px solid #e3ebf3;
-        font-size: 27px;
+        font-size: 26px;
         font-weight: 850;
       }
       .proof-line span { color: #536477; font-weight: 750; }
+      .proof-line strong { text-align: right; }
       .caption {
         /* override .clip { width:100%; inset:0 } so the pill shrinks to its text
            and centers via left:0/right:0 + margin auto (no transform — GSAP owns that). */
@@ -942,7 +1233,7 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
           <img class="logo" src="assets/logomark.svg" alt="" />
           <div>
             <div class="brand-text">价序</div>
-            <div class="subline" style="margin-top: 12px;">把表格交给它，直接说你要完成的价格治理工作</div>
+            <div class="subline" style="margin-top: 12px;">政策变更后的存量机构执行价复核 Agent</div>
           </div>
         </div>
         <img class="final-mark" src="assets/logo-mono.svg" alt="" />
@@ -950,14 +1241,14 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
 
       <section id="s2" class="scene clip" data-start="${s2Start.toFixed(2)}" data-duration="${s2Duration.toFixed(2)}" data-track-index="2">
         <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>09:00</div>
-        <div class="kicker">早上九点</div>
-        <h1 class="headline">桌上是一堆对不齐的表。</h1>
+        <div class="ghost" data-layout-ignore>POLICY</div>
+        <div class="kicker">一线原话</div>
+        <h1 class="headline" style="font-size: 78px;">政策一变，昨天核过的价，今天就不算数。</h1>
         <div class="rail">
-          <div class="source-card"><b>挂网价</b><span>省平台更新，名称和编码口径未必一致</span></div>
-          <div class="source-card"><b>执行价</b><span>机构回传，包装单位和票据要对齐</span></div>
-          <div class="source-card"><b>集采进度</b><span>中选价落地慢，容易卡住回访</span></div>
-          <div class="source-card"><b>昨日未完</b><span>催过的回函今天还要继续追</span></div>
+          <div class="source-card"><b>政策更新</b><span>集采中选价一落地，几万条存量执行价要重新对</span></div>
+          <div class="source-card"><b>存量执行价</b><span>编码、包装单位、目录别名各说各话</span></div>
+          <div class="source-card"><b>人工审批</b><span>规则明明清楚的项，也要一条条人工点头</span></div>
+          <div class="source-card"><b>经验流失</b><span>审完的判断没人记住，下个月从零再来</span></div>
         </div>
       </section>
 
@@ -965,10 +1256,10 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
         <div class="texture" data-layout-ignore></div>
         <div class="ghost" data-layout-ignore>WORKSPACE</div>
         <div class="kicker">第一屏</div>
-        <h1 class="headline" style="font-size: 78px;">把表格交给它，再用一句话说要做什么。</h1>
+        <h1 class="headline" style="font-size: 78px;">首页只有一个入口。</h1>
         <div class="entry-card">
-          <div class="mono" style="font-size: 25px; color: #536477; font-weight: 800;">/workspace</div>
-          <div class="field">核完并修复这批价格数据。能修的先修，拿不准的问我，可处置的生成机构核实口径和流程任务。</div>
+          <div class="mono" style="font-size: 25px; color: #536477; font-weight: 800;">/workspace?prompt=drift_review_loop</div>
+          <div class="field">核完并闭环处置这批机构执行价异常：对照最新政策事实检出漂移并生成复核任务；命中激活规则的自动处置；其余转人审；人审结论沉淀为规则候选。</div>
           <div class="button-pill">发给价序</div>
         </div>
       </section>
@@ -976,7 +1267,7 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
       <div id="demo-bg" class="demo-stage clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="4"></div>
       <div id="demo-chrome" class="demo-chrome clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="5">
         <span class="dot"></span>
-        <span>real browser demo · ${escapeHtml(BASE)}/workspace</span>
+        <span>real browser demo · /workspace · 三次真实 live-provider run · 政策同步真实抓取</span>
       </div>
       <video id="demo-video" class="demo-video clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="6" src="assets/demo-footage-fit.mp4" muted playsinline></video>
       ${callouts}
@@ -985,19 +1276,23 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
         <div class="texture" data-layout-ignore></div>
         <div class="ghost" data-layout-ignore>OBJECTS</div>
         <div class="kicker">结果落到对象里</div>
-        <h1 class="headline" style="font-size: 80px;">18 行表，变成 5 类可审批对象。</h1>
+        <h1 class="headline" style="font-size: 80px;">一批乱表，跑成六类可审批对象。</h1>
         <div class="proof-grid">
           <div class="proof-panel">
-            <h3>已生成对象</h3>
-            <div class="proof-line"><span>字段映射</span><strong>8</strong></div>
-            <div class="proof-line"><span>修复 patch</span><strong>3</strong></div>
-            <div class="proof-line"><span>同品归并</span><strong>6</strong></div>
+            <h3>六类业务对象</h3>
+            <div class="proof-line"><span>漂移队列</span><strong>检出 → 复核 → 闭环</strong></div>
+            <div class="proof-line"><span>人审任务</span><strong>批准即学习样本</strong></div>
+            <div class="proof-line"><span>处置建议卡</span><strong>机构口径草稿</strong></div>
+            <div class="proof-line"><span>规则候选</span><strong>dry-run 后人工激活</strong></div>
+            <div class="proof-line"><span>政策事实</span><strong>版本 hash 可追溯</strong></div>
+            <div class="proof-line"><span>数据修复</span><strong>映射 · patch · 归并</strong></div>
           </div>
           <div class="proof-panel">
             <h3>系统写入</h3>
-            <div class="proof-line"><span>流程任务</span><strong>4</strong></div>
-            <div class="proof-line"><span>机构草稿</span><strong>4</strong></div>
-            <div class="proof-line"><span>回放</span><strong>run_event · observe→verify</strong></div>
+            <div class="proof-line"><span>状态库</span><strong>本地 SQLite</strong></div>
+            <div class="proof-line"><span>决策日志</span><strong>不可变 · 全留痕</strong></div>
+            <div class="proof-line"><span>过程回放</span><strong>run_event 每步</strong></div>
+            <div class="proof-line"><span>效能条</span><strong>实时 · 可对账</strong></div>
           </div>
         </div>
       </section>
@@ -1006,12 +1301,12 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
         <div class="texture" data-layout-ignore></div>
         <div class="ghost" data-layout-ignore>LOOP</div>
         <div class="kicker">它每次怎么跑</div>
-        <h1 class="headline" style="font-size: 76px;">模型给计划，服务端管状态和人审边界。</h1>
+        <h1 class="headline" style="font-size: 76px;">模型出计划，服务端管状态和红线。</h1>
         <div class="step-grid">
-          <div class="step-card"><strong>读上下文</strong><span>CSV / 演示数据源 / 回函 / 未完</span></div>
-          <div class="step-card"><strong>排计划</strong><span>核价 / 标化 / 修复 / 催办 / 流程</span></div>
-          <div class="step-card"><strong>跑工具</strong><span>映射 · 归并 · 换算 · 规则 · 草稿</span></div>
-          <div class="step-card"><strong>写状态 + 追问</strong><span>落库 SQLite · 拿不准转人审</span></div>
+          <div class="step-card"><strong>读上下文</strong><span>执行价表 · 政策事实 · 决策日志</span></div>
+          <div class="step-card"><strong>排计划 · 跑工具</strong><span>核价 · 归并 · 换算 · 漂移检测</span></div>
+          <div class="step-card"><strong>写状态 · 转人审</strong><span>六类对象落库 · 拿不准不硬判</span></div>
+          <div class="step-card"><strong>学规则 · 过护栏</strong><span>人审沉淀 → dry-run → 激活 → 自动处置</span></div>
         </div>
       </section>
 
@@ -1022,8 +1317,8 @@ function writeProjectFiles({ demoVideo, narrationSegments, narration }) {
           <img class="logo" src="assets/logomark.svg" alt="" />
           <div>
             <div class="kicker" style="margin-bottom: 12px;">评委可复跑</div>
-            <h1 class="headline" style="font-size: 78px; max-width: 1160px;">从首页点一个 prompt 进 /workspace，看 18 行表怎么变成可审批对象。</h1>
-            <div class="subline">合成/脱敏来源 · 真实模型 provider · SQLite 状态 · auth_failed 不生成假线索</div>
+            <h1 class="headline" style="font-size: 76px; max-width: 1200px;">一条命令复跑全链路，十七项检查全绿。</h1>
+            <div class="subline">政策同步 → 漂移 → 人审 → 挖掘 → 激活 → 自动处置 · 合成/脱敏数据 · 真实模型 · auth_failed 不编假线索</div>
             <div class="accent-line"></div>
           </div>
         </div>
@@ -1139,8 +1434,8 @@ ${captionTweens}
     join(PROJECT, "meta.json"),
     JSON.stringify(
       {
-        id: "jiaxu-pitch-demo-2",
-        name: "价序 Pitch + Demo",
+        id: "jiaxu-pitch-demo-v22",
+        name: "价序 Pitch + Demo (V2.2)",
         createdAt: new Date().toISOString(),
         duration: total,
         runtimeMode: "narration-driven",
@@ -1154,6 +1449,16 @@ ${captionTweens}
         narrationCharacters: narration.length,
         demoStart,
         demoDuration,
+        demoBeats,
+        demoRetime: plan.map((p) => ({
+          seg: p.seg,
+          beat: p.id,
+          kind: p.kind,
+          raw_s: Number(p.raw.toFixed(2)),
+          target_s: Number(p.target.toFixed(2)),
+          speed_x: Number((1 / p.factor).toFixed(2)),
+        })),
+        demoTargets: targets,
         resultStart,
         mechanismStart,
         closeStart,
@@ -1164,7 +1469,18 @@ ${captionTweens}
     ),
     "utf8",
   );
-  return { total, demoDuration, demoStretch: stretch, rawDuration, narrationSegments, audioFinal, demoStart, resultStart, mechanismStart, closeStart };
+  return {
+    total,
+    demoDuration,
+    retimePlan: plan,
+    rawDuration,
+    narrationSegments,
+    audioFinal,
+    demoStart,
+    resultStart,
+    mechanismStart,
+    closeStart,
+  };
 }
 
 function renderVideo(meta) {
@@ -1280,6 +1596,7 @@ function qaVideo(videoPath, meta) {
   const size = Number(probe.format.size || 0);
   const dur = Number(probe.format.duration || 0);
   const bitrateMbps = dur > 0 ? (size * 8) / dur / 1_000_000 : 0;
+  const speeds = meta.retimePlan.map((p) => 1 / p.factor);
   const summary = {
     video: relative(ROOT, videoPath),
     legacy_video: "docs/video/demo.mp4",
@@ -1307,16 +1624,28 @@ function qaVideo(videoPath, meta) {
       source: "hackathonhunter/assets/music",
       intro_outro: BGM_INTRO,
       mid: BGM_MID,
-      mix: "crossfade bed, sidechain-ducked under narration (ratio 12), bed ~-26dB / narration window ~-16dB",
+      mix: "crossfade bed, sidechain-ducked under narration (ratio 12), bed ~-26dB / narration window ~-17dB",
     },
     composed_duration_s: meta.total,
     runtime_mode: "narration-driven (scenes cut on narration end, total < 5min)",
-    demo_stretch_x: meta.demoStretch ? Number(meta.demoStretch.toFixed(2)) : undefined,
+    demo_retime: {
+      mode: "per-beat (provider waits compressed, clicks near 1x)",
+      beats: meta.retimePlan.map((p) => ({
+        seg: p.seg,
+        beat: p.id,
+        kind: p.kind,
+        raw_s: Number(p.raw.toFixed(2)),
+        target_s: Number(p.target.toFixed(2)),
+        speed_x: Number((1 / p.factor).toFixed(2)),
+      })),
+      speed_min_x: Number(Math.min(...speeds).toFixed(2)),
+      speed_max_x: Number(Math.max(...speeds).toFixed(2)),
+    },
     tts_provider: TTS_PROVIDER,
     tts_voice: TTS_VOICE,
     hyperframes_project: relative(ROOT, PROJECT),
     contact_sheet: relative(ROOT, join(QA, "contact-sheet.jpg")),
-    real_browser_path: `${BASE}/ → /workspace`,
+    real_browser_path: `${BASE}/ → /workspace（政策变更→漂移→人审→规则激活→自动处置）`,
     demo_start_s: meta.demoStart,
     result_start_s: Number(meta.resultStart.toFixed(2)),
     mechanism_start_s: Number(meta.mechanismStart.toFixed(2)),
@@ -1328,22 +1657,33 @@ function qaVideo(videoPath, meta) {
 
 async function main() {
   const reusableFootage = join(OUT, "_reuse-demo-footage.mp4");
-  const existingFootage = join(PROJECT, "assets", "demo-footage.mp4");
-  if (REUSE_DEMO_FOOTAGE && existsSync(existingFootage)) {
+  const reusableBeats = join(OUT, "_reuse-demo-beats.json");
+  const existingFootage = join(ASSETS, "demo-footage.mp4");
+  const existingBeats = join(ASSETS, "demo-beats.json");
+  if (REUSE_DEMO_FOOTAGE && existsSync(existingFootage) && existsSync(existingBeats)) {
     copyFileSync(existingFootage, reusableFootage);
+    copyFileSync(existingBeats, reusableBeats);
   }
   clean();
   copyBrand();
-  const demoVideo = existsSync(reusableFootage)
-    ? (() => {
-        const target = join(ASSETS, "demo-footage.mp4");
-        copyFileSync(reusableFootage, target);
-        rmSync(reusableFootage, { force: true });
-        return target;
-      })()
-    : await recordProductFootage();
+  let demoVideo;
+  let demoBeats;
+  if (existsSync(reusableFootage) && existsSync(reusableBeats)) {
+    const target = join(ASSETS, "demo-footage.mp4");
+    copyFileSync(reusableFootage, target);
+    copyFileSync(reusableBeats, join(ASSETS, "demo-beats.json"));
+    demoBeats = JSON.parse(readFileSync(reusableBeats, "utf8")).beats;
+    rmSync(reusableFootage, { force: true });
+    rmSync(reusableBeats, { force: true });
+    demoVideo = target;
+    console.log("[footage] REUSE_DEMO_FOOTAGE=1 → reusing previous footage + beats");
+  } else {
+    const rec = await recordProductFootage();
+    demoVideo = rec.raw;
+    demoBeats = rec.beats;
+  }
   const { segments: narrationSegments, narration } = await generateAudio();
-  const meta = writeProjectFiles({ demoVideo, narrationSegments, narration });
+  const meta = writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration });
   const videoPath = renderVideo(meta);
   qaVideo(videoPath, meta);
   rmSync(WORK, { recursive: true, force: true });

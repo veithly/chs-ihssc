@@ -61,7 +61,8 @@ export type ReplayPhase =
   | "tools"
   | "mutate"
   | "verify"
-  | "recover";
+  | "recover"
+  | "learn";
 
 export interface ReplayEvent {
   phase: ReplayPhase;
@@ -508,6 +509,7 @@ export interface WorkflowTask {
   thread_id: string;
   run_id: string;
   disposition_id: string | null;
+  drift_id?: string | null;
   task_type: string;
   owner_role: string;
   status: string;
@@ -515,6 +517,7 @@ export interface WorkflowTask {
   due_at: string | null;
   title: string;
   detail: string;
+  final_action?: string | null;
   created_at: string;
   updated_at: string;
 }

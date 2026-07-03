@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "lark-doc": {
+      "source": "larksuite/cli",
+      "sourceType": "github",
+      "skillPath": "skills/lark-doc/SKILL.md",
+      "computedHash": "fcb4b4823ba95766061420466ea217598d886b4291907cd8dd06ed55690bf7c7"
+    },
+    "lark-shared": {
+      "source": "larksuite/cli",
+      "sourceType": "github",
+      "skillPath": "skills/lark-shared/SKILL.md",
+      "computedHash": "918baece5acf060e12083627922253b552d5f1810ad02945f97b2f162f858ca8"
+    }
+  }
+}

@@ -12,11 +12,16 @@
     "seed": "node scripts/seed_demo.mjs",
     "smoke:agent": "node scripts/smoke-agent.mjs",
     "smoke:jiaxu": "node scripts/smoke-agent.mjs",
+    "verify:v2": "node scripts/verify-v2.mjs",
     "shots": "node scripts/screenshots.mjs",
     "deck:export": "node scripts/export_deck.mjs",
-    "video:demo": "node scripts/record_demo.mjs"
+    "video:demo": "node scripts/record_demo.mjs",
+    "build:opennext": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare deploy"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "^1.20.1",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/themes": "^3.2.1",
     "next": "^15.3.0",
@@ -31,6 +36,7 @@
     "@types/react-dom": "^19.0.0",
     "playwright": "^1.61.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wrangler": "^4.105.0"
   }
 }

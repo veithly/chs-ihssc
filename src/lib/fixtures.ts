@@ -294,11 +294,14 @@ function buildBatch(plan: BatchPlan): FixtureRelease {
     for (let n = 0; n < (plan.issues[k] ?? 0); n += 1) issueList.push(k);
   });
   const taken = new Set<number>();
+  // 问题行放进前 18 行：演示数据源（workspace）取每批前 18 行作为抽样窗口，
+  // 保证漂移/复核/自动处置的演示素材一定在窗口内（确定性，不靠随机运气）。
+  const issueCap = Math.min(plan.total, 18);
   const nextIndex = (): number => {
-    let idx = Math.floor(rng() * plan.total);
+    let idx = Math.floor(rng() * issueCap);
     let guard = 0;
-    while (taken.has(idx) && guard < plan.total * 3) {
-      idx = (idx + 1) % plan.total;
+    while (taken.has(idx) && guard < issueCap * 3) {
+      idx = (idx + 1) % issueCap;
       guard += 1;
     }
     taken.add(idx);
@@ -376,6 +379,8 @@ const PLANS: BatchPlan[] = [
       hard_code: 1,
       correctable: 2,
       collection_not_landed: 2,
+      // 参考价涨幅 15-20% 的中危行：非敏感、可被人审沉淀的规则自动处置（自动复用演示素材）
+      price_spike: 2,
       future_date: 1,
     },
   },

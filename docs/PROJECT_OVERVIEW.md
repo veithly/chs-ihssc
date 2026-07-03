@@ -1,8 +1,10 @@
 # 价序 · 项目说明
 
-> 一句话：把医保价格治理岗每天面对的一堆没排好顺序的价格表，交给一个会读字段、会归并同品、会换算单位、会发起流程的智能体工作台。
+> 一句话：把医保价格治理岗每天面对的一堆没排好顺序的价格表，交给一个会读字段、会归并同品、会换算单位、会发起流程的智能体工作台；政策一变，它自己对照政策事实复核存量执行价，人审结论沉淀成规则，下批自动处置。
 >
 > 适用对象：2026 全国智慧医保大赛评委、内部评审。复制本文粘贴进飞书文档即可，Mermaid 图可用「飞书 → 插入 → 代码块」渲染，或贴入 mermaid.live 导出 PNG。
+>
+> 版本：V2.2。针对一线反馈新增政策对齐 + 自学习闭环：政策事实版本化、公告同步人审确认、每次 run 检出政策漂移、人审结论挖掘成规则候选、dry-run 后人审激活、护栏内自动处置、不可变决策日志。
 
 ---
 
@@ -19,6 +21,8 @@
 - 把「今天先办谁、为什么、缺什么证据」这件早上排序的工作，从人脑挪到智能体上。工作人员从逐行核价，变成复核智能体已经排好的处置顺序和草稿。
 - 每一步都有回放。发函、通报、违规认定这类对外动作仍由人确认，但智能体把前置的字段标化、归并、规则评估、草稿生成全做完了，并且每一行是怎么走到流程任务的，都能查到。
 - 失败不假成功。Provider 不可用时，系统写失败态，不会拿本地规则包装成一个看起来正常的结论。在医保这种强合规场景，这一点比跑得快更重要。
+
+V2.2 又针对一线医保老师的两句反馈补了一段闭环。第一句是「政策实时更新，数据常跟政策对不上」：中选价、最高有效价一调整，昨天核过的存量执行价今天就可能不合规，但没人手一条条重核。价序把政策口径做成版本化的政策事实（policy_fact），支持从国家医保局公开公告页真实抓取、公告 hash 留痕、人审确认后才生效；每次 run 都对照最新基线重核存量，检出的漂移进「漂移队列」，高危自动生成复核任务。第二句是「审批负担太重，审完的经验没人记住」：价序把每一次人审批准连同问题类型、严重度、处置动作写进不可变决策日志，从中挖掘规则候选，dry-run 预览影响面、人审激活后，下批命中的非敏感项自动处置——审批负担随使用递减，而高危项被护栏永久留在人审。
 
 覆盖的赛题范围：医药价格数据标化治理、药品及医用耗材价格动态监测、价格异常预警与处置、集采价格落地跟踪。
 
@@ -57,9 +61,9 @@
 
 两个入口背后是两个 agent runner，但循环结构相同。下面先讲共用的循环，再讲各自的差异。
 
-### 3.2 智能体五段式循环
+### 3.2 智能体循环：observe → plan → tools → mutate → verify（+drift/learn）
 
-每一次任务执行都走完五步，每一步都把状态写到 SQLite，评委可以从回放里看到它当时为什么这么做。
+每一次任务执行都走完核心五段，V2.2 在 verify 之后追加两个条件段：drift（对照政策事实基线检出漂移）和 learn（应用已激活的学习规则自动处置）。每一步都把状态写到 SQLite，评委可以从回放里看到它当时为什么这么做。
 
 ```mermaid
 flowchart LR
@@ -79,17 +83,23 @@ flowchart LR
         VF1["重读治理状态<br/>计算 output_hash<br/>组装回放时间线"]
     end
 
-    OB --> PL --> TL --> MT --> VF
+    subgraph DL["⑥ drift/learn 政策与学习（V2.2）"]
+        DL1["对照 policy_fact 检出漂移<br/>命中激活规则且护栏通过 → 自动处置"]
+    end
+
+    OB --> PL --> TL --> MT --> VF --> DL
     PL -. "provider 不可用" .-> RC["recover 降级<br/>写失败态 · 不假成功"]
 ```
 
-五个阶段的职责切分很清楚：
+各阶段的职责切分很清楚：
 
 - **observe**：读取数据上下文。价格批次或上传表的字段、行数、目录版本、治理规则，抽样后交给规划器参考。
 - **plan**：调用 live provider。这是 AI 真正介入的地方。模型读完观察结果，输出主要风险重点、有序的工具调用步骤、预计的治理状态、机构核实草稿。在写任何状态之前发生。
 - **tools**：确定性函数逐行执行。字段映射、价格目录标化、参考价监测、集采落地跟踪、异常画像。每一行都跑同一组校验，结果都是结构化对象，可复算。
 - **mutate**：写状态到 SQLite。修复 patch、归并组、单位换算、价格口径、处置篮、机构草稿、流程任务，每类对象一张表。
 - **verify**：重读治理状态，计算 output_hash，组装回放时间线。评委拿到 run id 就能复跑。
+- **drift（V2.2）**：对照版本化 policy_fact 基线重核本批归并结果，检出集采超容忍、超最高有效价、编码失效等政策漂移，落 `policy_drift_log`；高危漂移自动生成「政策漂移复核」人审任务。
+- **learn（V2.2）**：对本批处置项应用已激活的学习规则；命中且确定性护栏通过的自动处置（`auto_approved`），敏感项强制转人审（`needs_human`），全部写进不可变 `approval_decision_log`。
 
 降级路径是显式的：provider 不可用时不走 tools 之后的写状态，直接 recover，治理状态置为「检查失败」。
 
@@ -125,14 +135,22 @@ src/
 ├── components/             # WorkspaceClient · ReleaseGate · ReplayTimelineView 等
 └── lib/
     ├── agent/
-    │   ├── runWorkspaceAgent.ts      # 工作台 agent runner
+    │   ├── runWorkspaceAgent.ts      # 工作台 agent runner（含 drift/learn 段）
     │   ├── runReleaseGateAgent.ts    # 放行闸门 agent runner
     │   ├── workspaceTools.ts         # 工作台确定性工具
     │   └── tools.ts                  # 放行闸门确定性校验器
+    ├── policy/fetcher.ts    # V2.2 政策同步：公告抓取 → artifact 人审确认 → policy_fact
+    ├── workspace/
+    │   ├── repo.ts          # SQLite 读写
+    │   ├── drift.ts         # V2.2 政策漂移检测（对照 policy_fact 基线）
+    │   ├── guardrails.ts    # V2.2 自动审批护栏（敏感项一律人审）
+    │   ├── rules.ts         # V2.2 规则挖掘 / dry-run / 激活 / 复用
+    │   └── taskDecision.ts  # V2.2 人审决策 + 不可变决策日志
     ├── provider.ts          # OpenAI 兼容 live provider
-    ├── workspace/repo.ts    # SQLite 读写
     └── fixtures.ts          # 合成/脱敏数据
 ```
+
+V2.2 新增 API：`/api/workspace/policy-sync`（公告真实抓取）、`policy-artifacts`（公告确认）、`policy-facts`、`policy-update`（政策变更演示）、`policy-drifts`、`rule-candidates`（挖掘/dry-run/激活）、`tasks/[id]`（人审 + final_action）、`decision-log`、`metrics`。
 
 ---
 
@@ -149,7 +167,7 @@ flowchart LR
     HOME --> ST["/settings<br/>provider 设置"]
 
     WS -. "选 prompt 或输入指令" .-> WS
-    WS -. "查看生成对象" .-> WSOBJ["字段映射 · 修复patch<br/>同品归并 · 流程任务 · 机构口径"]
+    WS -. "查看业务对象" .-> WSOBJ["漂移队列 · 人审任务 · 处置建议卡<br/>规则候选 · 政策事实 · 数据修复"]
 
     RL --> RScan["一键扫描整批"]
     RScan --> RRes["/result 结果"]
@@ -160,7 +178,7 @@ flowchart LR
 
 #### 首页实拍
 
-首页（`/`）讲清楚产品做什么，并提供进工作台的内置 prompt 入口。下半页是智能体五段循环和可复跑凭证。
+首页（`/`）讲清楚产品做什么，并提供进工作台的内置 prompt 入口（hero prompt 主打政策闭环）。下半页是智能体七步循环（observe/plan/tools/mutate + V2.2 的 drift/learn + verify）、业务对象落库图和可复跑凭证。
 
 ![首页 hero 区：一句话产品定位 + 进工作台的内置 prompt 入口](./screenshots/10-landing-hero.png)
 
@@ -207,9 +225,9 @@ sequenceDiagram
 
 一次完整任务的样子，按时间顺序：
 
-1. **空工作台**：还没接数据。底部是五个内置 prompt。
+1. **空工作台**：还没接数据。顶部是四个内置 prompt。
 
-![空工作台 · 五个内置 prompt 待选](./screenshots/01-workspace-empty.png)
+![空工作台 · 内置 prompt 待选](./screenshots/01-workspace-empty.png)
 
 2. **接入数据源**：演示数据源读进来，字段和行可见。
 
@@ -223,27 +241,36 @@ sequenceDiagram
 
 ![结果返回 · 处置摘要与追问](./screenshots/04-agent-result.png)
 
-5. **生成对象**：五个页签里的具体产物。字段映射与修复 patch 一组，流程任务与机构草稿一组。
+5. **生成对象**：六个业务页签里的具体产物。字段映射与修复 patch 在「数据修复」，流程任务与机构草稿在「人审任务」「处置建议卡」。
 
-![字段映射与修复 patch 页签](./screenshots/05-field-mapping-repair.png)
+![「数据修复」页签 · 字段映射与修复 patch](./screenshots/05-field-mapping-repair.png)
 
-![流程任务与机构草稿页签](./screenshots/06-workflow-drafts.png)
+![「处置建议卡」页签 · 机构核实草稿预览](./screenshots/06-workflow-drafts.png)
 
 6. **追问续办**：在输入框改一句规则，已有任务被更新。
 
 ![追问续办 · 已有任务被更新](./screenshots/07-followup-instruction.png)
 
-工作台底部有五个内置 prompt，对应五种日常动作，点一下直接进工作台带指令跑：
+工作台顶部有四个内置 prompt（landing 首页同款，点了直接深链进工作台带指令跑），hero prompt 主打 V2.2 的政策闭环场景：
 
 | Prompt | 做什么 |
 |--------|--------|
+| 核完并闭环处置这批机构执行价异常（hero） | 对照最新政策事实核存量执行价：检出漂移建复核任务；命中激活规则的自动处置；其余转人审；人审结论沉淀为规则候选 |
 | 核完并修复这批价格数据 | 能确定的先修，拿不准的问，可处置的生成机构核实口径和流程任务 |
 | 找出集采落地差异并生成催办口径 | 找未落地行，生成催办机构口径和内部流程任务 |
-| 把同品同规先归并，拿不准的问我 | 高置信直接建组，拿不准只提问 |
-| 解析机构回函，更新昨日续办 | 从回函提取价格、原因、承诺时间、缺失材料 |
 | 生成需要发起的数据治理确认 | 缺字段、缺单位的先不催医院，转数据治理 |
 
-生成结果分五个对象页签：字段映射、修复 patch、同品归并、流程任务、机构口径。每个对象都能追到它来自哪一行、为什么生成。
+生成结果按价格治理岗的业务对象分六个页签：漂移队列、人审任务、处置建议卡、规则候选、政策事实、数据修复。每个对象都能追到它来自哪一行、为什么生成，右侧底部的审计日志条展示 needs_human / human_approved / auto_approved 全部决策留痕。
+
+### 4.2.1 V2.2 政策对齐与自学习闭环（实拍）
+
+政策事实页签是政策口径的真相源：每条政策事实带来源 hash，支持「政策同步」从国家医保局公开公告页真实抓取（公告 hash 留痕、人审确认后才生效），也提供「政策变更演示 640→560」按钮做离线演示。
+
+![政策事实页签 · 政策同步与公告人审确认](./screenshots/12-policy-engine.png)
+
+政策变更后重跑，漂移队列当场检出存量执行价的政策漂移（集采超容忍 / 超最高有效价 / 编码失效），标出 baseline → observed 与严重度，高危项自动生成「政策漂移复核」人审任务：
+
+![漂移队列 · 政策变更后检出的存量执行价漂移](./screenshots/13-drift-queue.png)
 
 ### 4.3 流程二：批次放行闸门（`/release/[id]`）
 
@@ -307,20 +334,20 @@ stateDiagram-v2
 
 - 工作台：工具结果（字段映射、归并、规则评估）保留并展示，因为这部分是确定性计算，不依赖模型。但机构口径草稿位置显示「草稿暂不生成」，状态为 `draft_unavailable`，不拿本地模板填一个看起来像样的草稿。
 - 放行闸门：整批治理状态置为「检查失败」，`agent_run.status=degraded`，replay 时间线里有一段红色的 recover 记录，写明失败原因。
-- 验证路径：`DEMO_URL=http://127.0.0.1:3004 npm run smoke:jiaxu` 用坏 key 跑，期望 `auth_failed`、`leadCount=0`，失败页不伪造成功。
+- 验证路径：`node scripts/screenshot-failure.mjs` 用坏 key 起隔离实例复现，期望 `auth_failed` + `draft_unavailable`，截图 `docs/screenshots/09-workspace-provider-failure.png` 不伪造成功。
 
 ---
 
 ## 5. 演示路径（给评委的复跑清单）
 
-### 5.1 对话式工作台
+### 5.1 对话式工作台（V2.2 主演示线）
 
-1. 打开 `/workspace`。
-2. 选一个演示数据源（或上传 CSV）。
-3. 点「核完并修复这批价格数据」。
-4. 看字段映射、修复 patch、同品归并、流程任务、机构口径五个对象页签。
-5. 在输入框追问「缺包装单位的先转数据治理」，看已有任务被更新。
-6. 看 run id 和 output_hash。
+1. 打开 `/`，看实时工作台统计；点 hero prompt「核完并闭环处置这批机构执行价异常」，深链进 `/workspace`，演示数据源自动接入，agent 当场跑。
+2. 右侧「政策事实」页签点「政策变更演示 640→560」（或「政策同步」真实抓取国家医保局公告 → 公告下人审确认），重跑 hero prompt。
+3. 「漂移队列」看检出的存量执行价漂移；高危漂移已自动生成「政策漂移复核」人审任务。
+4. 「人审任务」逐条批准并选处置动作（final_action）；「规则候选」点挖掘 → dry-run 看影响面 → 人审激活。
+5. 再跑一次：命中激活规则且护栏通过的项显示「自动处置」，敏感项仍留人审；底部审计日志条 needs_human / human_approved / auto_approved 全留痕。
+6. 回 needs_user 追问（如「把重点机构排前面，缺包装单位的先转数据治理确认」），任务/草稿重排；对话区看工具轨迹回放和 output_hash。
 
 ### 5.2 批次放行闸门
 
@@ -339,9 +366,10 @@ npm run creds        # 配置 provider key
 npm run build
 npm run start
 
-# 另开终端跑冒烟
-DEMO_URL=http://127.0.0.1:3004 npm run smoke:jiaxu   # 期望 9/9 通过
-DEMO_URL=http://127.0.0.1:3004 npm run shots         # 生成截图
+# 另开终端跑验证
+DEMO_URL=http://127.0.0.1:3000 npm run smoke:agent   # 期望 15/15 通过
+DEMO_URL=http://127.0.0.1:3000 npm run verify:v2     # 期望 17/17 通过（V2.2 政策同步→漂移→人审→挖掘→激活→自动处置全链路）
+DEMO_URL=http://127.0.0.1:3000 npm run shots         # 生成截图 01-08、10-13
 ```
 
 ---
@@ -355,7 +383,8 @@ DEMO_URL=http://127.0.0.1:3004 npm run shots         # 生成截图
 
 ## 7. 材料索引
 
-- Pitch Deck：`docs/deck/jiaxu-deck.pdf`、`docs/deck/jiaxu-deck.pptx`
-- Pitch+Demo 视频：`docs/video/pitch-demo-2.mp4`
-- 截图：`docs/screenshots/`
-- 验证证据：`docs/evidence/`
+- Pitch Deck：`docs/deck/jiaxu-deck.pdf`、`docs/deck/jiaxu-deck.pptx`、`docs/deck/index.html`
+- Pitch+Demo 视频：`docs/video/pitch-demo-2.mp4`（1920×1080 / 30fps / 255.77s ≈ 4:16）
+- 视频 QA：`docs/video/pitch-demo/qa/summary.json`
+- 截图：`docs/screenshots/`（01–13，其中 12/13 为 V2.2 政策引擎与漂移队列）
+- 验证证据：`docs/evidence/`、`.hunter/v2-verification.json`
