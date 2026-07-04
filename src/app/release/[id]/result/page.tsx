@@ -51,7 +51,7 @@ export default async function ResultPage({
   if (!release) {
     return (
       <div className="gate-shell">
-        <AppHeader active="价格治理" />
+        <AppHeader active="待办核验" />
         <main className="result-empty">未找到价格批次 {id}</main>
       </div>
     );
@@ -61,7 +61,7 @@ export default async function ResultPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
+      <AppHeader active="待办核验" />
       <Breadcrumb items={["价格治理", "价格批次", release.id, "结果"]} />
       <main className="result-shell">
         <ResultTabs releaseId={id} active="result" />

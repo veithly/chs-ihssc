@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default function ImportPage() {
   return (
     <div className="gate-shell">
-      <AppHeader active="采集箱" />
+      <AppHeader active="补充来源" />
       <Breadcrumb items={["价序", "采集箱"]} />
       <main className="import-shell">
         <header className="import-page-head">

@@ -25,7 +25,7 @@ export default async function ApprovalPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
+      <AppHeader active="待办核验" />
       <Breadcrumb items={["价格治理", "价格批次", id, "核验记录"]} />
       <main className="approval-shell">
         <ResultTabs releaseId={id} active="approval" />

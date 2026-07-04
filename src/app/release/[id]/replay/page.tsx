@@ -23,7 +23,7 @@ export default async function ReplayPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
+      <AppHeader active="待办核验" />
       <Breadcrumb items={["价格治理", "价格批次", id, "过程回看"]} />
       <main className="replay-shell">
         <ResultTabs releaseId={id} active="replay" />
