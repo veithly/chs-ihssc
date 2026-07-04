@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getRow, updateRow } from "@/lib/repo";
 import { EDITABLE_FIELDS, type EditableField } from "@/lib/types";
 
@@ -11,7 +11,7 @@ export async function PATCH(req: Request) {
   try {
     body = (await req.json()) as { rowId?: string; patch?: Record<string, unknown> };
   } catch {
-    return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "请求格式不正确，请重新提交。" }, { status: 400 });
   }
   if (!body.rowId || !body.patch) {
     return NextResponse.json({ ok: false, message: "缺少 rowId 或 patch。" }, { status: 400 });

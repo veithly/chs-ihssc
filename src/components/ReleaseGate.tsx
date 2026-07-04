@@ -304,7 +304,7 @@ export function ReleaseGate({
               <ExclamationTriangleIcon />
             </Callout.Icon>
             <Callout.Text>
-              未发现模型服务凭证，本次只保留确定性核查并写入「检查失败」（不会伪造成功）。
+              未发现智能研判配置，本次只保留可确定核查并写入「检查失败」（不会伪造成功）。
             </Callout.Text>
           </Callout.Root>
         )}
@@ -331,7 +331,7 @@ export function ReleaseGate({
                 <ReloadIcon className="spin" /> 监测中
               </>
             ) : (
-              <>运行价格治理 · 整批 {rows.length} 行</>
+              <>发起价格治理 · 整批 {rows.length} 行</>
             )}
           </button>
           <div className="release-run-trace" aria-live="polite">

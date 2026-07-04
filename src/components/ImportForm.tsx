@@ -30,7 +30,7 @@ export function ImportForm() {
   async function submit() {
     if (busy) return;
     if (!csv.trim()) {
-      setError("请粘贴 CSV 或选择文件。");
+      setError("请粘贴表格内容或选择文件。");
       return;
     }
     setBusy(true);
@@ -63,10 +63,10 @@ export function ImportForm() {
             <span className="import-kicker mono">SOURCE INTAKE · 采集箱</span>
             <strong className="import-title">导入价格批次</strong>
           </div>
-          <span className="import-tag mono">CSV · 最多 500 行</span>
+          <span className="import-tag mono">表格 · 最多 500 行</span>
         </div>
         <p className="import-lead">
-          粘贴 CSV 或上传文件，创建一个新的价格治理批次，并用同一套价格目录与采购渠道策略让智能体逐行监测。请仅导入合成 / 脱敏数据，切勿上传真实敏感信息。
+          粘贴表格内容或上传文件，创建一个新的价格治理批次，并用同一套价格目录与采购渠道策略逐行核查。请仅导入合成 / 脱敏数据，切勿上传真实敏感信息。
         </p>
 
         <label className="import-label" htmlFor="import-title">批次名称</label>
@@ -80,7 +80,7 @@ export function ImportForm() {
         />
 
         <div className="import-csv-head">
-          <label className="import-label">CSV 内容</label>
+          <label className="import-label">表格内容</label>
           <div className="import-csv-actions">
             <button type="button" className="chip" style={{ minHeight: 32, fontSize: 12.5 }} onClick={() => setCsv(SAMPLE)}>
               填入示例
@@ -128,7 +128,7 @@ export function ImportForm() {
       <aside className="gate-card import-side">
         <div className="import-side-head">
           <strong>列说明</strong>
-          <span className="import-side-tag mono">schema</span>
+          <span className="import-side-tag mono">表头规范</span>
         </div>
         <dl className="import-cols">
           {[

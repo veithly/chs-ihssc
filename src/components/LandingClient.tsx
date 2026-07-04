@@ -40,58 +40,58 @@ const LADDER: { phase: string; title: string; chip: string; detail: string; pain
   {
     phase: "observe",
     title: "读上下文",
-    chip: "table_parser · source_connector",
-    detail: "上传 CSV 或连接演示数据源；读取字段、行、政策事实与昨日未完。",
+    chip: "表格补录 · 来源接入",
+    detail: "补充表格或连接演示来源；读取字段、明细、政策依据与昨日未完事项。",
   },
   {
     phase: "plan",
     title: "排计划",
-    chip: "planner",
+    chip: "排查顺序",
     detail: "选择核价 / 修复 / 漂移复核 / 催办路径；高置信先做，拿不准先问。",
   },
   {
     phase: "tools",
-    title: "跑工具",
-    chip: "field_mapper · matcher · converter · rule_evaluator",
-    detail: "字段映射、单位换算、同品归并、价格对齐，结果都是结构化对象。",
+    title: "核明细",
+    chip: "逐项核对",
+    detail: "字段对应、单位换算、同品归并、价格对齐，结果都可复核。",
   },
   {
     phase: "mutate",
     title: "写状态",
-    chip: "writer · draft_generator · workflow_router",
+    chip: "处置留痕",
     detail: "数据修正、漂移记录、复核任务、机构草稿全部留痕保存。",
   },
   {
     phase: "drift",
     title: "盯政策",
-    chip: "policy_fact · policy_drift_log",
+    chip: "政策依据 · 风险记录",
     detail: "对照政策事实基线复核每一条执行价；政策一变，昨天合规的今天自动标红。",
     pain: "政策跟不住",
   },
   {
     phase: "learn",
     title: "学人审",
-    chip: "approval_decision_log · rule_candidate",
+    chip: "人工结论 · 待审规则",
     detail: "人审结论按（问题类型 × 严重度 × 处置动作）聚合成规则候选，激活后同类自动处置。",
     pain: "规则负担重",
   },
   {
     phase: "verify",
     title: "复查 + 留痕",
-    chip: "verifier · guardrail",
+    chip: "复核 · 护栏",
     detail: "数量与算术可复算；敏感项永远人审；每一次自动/人审决策都进决策日志。",
   },
 ];
 
 const PRODUCT_LOOP: { label: string; into: string }[] = [
-  { label: "政策事实", into: "policy_fact · policy_artifact" },
-  { label: "上传/连接", into: "uploaded_dataset · data_source_connection" },
-  { label: "字段映射", into: "field_mapping" },
-  { label: "数据修正", into: "repair_patch" },
-  { label: "漂移记录", into: "policy_drift_log" },
-  { label: "复核任务", into: "workflow_task" },
-  { label: "决策日志", into: "approval_decision_log" },
-  { label: "规则候选", into: "rule_candidate" },
+  { label: "政策依据", into: "公告来源 · 版本依据" },
+  { label: "上传/连接", into: "本批数据 · 来源记录" },
+  { label: "字段对应", into: "表头口径 · 标准字段" },
+  { label: "数据修正", into: "修正前后 · 待确认项" },
+  { label: "风险记录", into: "政策变化 · 执行价差异" },
+  { label: "复核任务", into: "责任岗 · 办理状态" },
+  { label: "决策留痕", into: "人工确认 · 自动处置" },
+  { label: "待审规则", into: "同类经验 · 人工激活" },
 ];
 
 interface LandingClientProps {
@@ -160,11 +160,11 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
 
   const statsRow = useMemo(() => {
     return [
-      { label: "字段映射", value: stats.fieldMappings, hint: "field_mapping" },
-      { label: "数据修正", value: stats.repairPatches, hint: "repair_patch" },
-      { label: "同品归并", value: stats.matchGroups, hint: "match_group" },
-      { label: "流程任务", value: stats.workflowTasks, hint: "workflow_task" },
-      { label: "机构草稿", value: stats.institutionDrafts, hint: "institution_draft" },
+      { label: "字段对应", value: stats.fieldMappings, hint: "表头已对应" },
+      { label: "数据修正", value: stats.repairPatches, hint: "修正待确认" },
+      { label: "同品归并", value: stats.matchGroups, hint: "同品已归并" },
+      { label: "流程任务", value: stats.workflowTasks, hint: "待办已生成" },
+      { label: "机构口径", value: stats.institutionDrafts, hint: "可发起核实" },
     ];
   }, [stats]);
 
@@ -205,7 +205,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
             <div className="landing-meta-row mono">
               <span>价格复核助手 · v0.1</span>
               <span className="pane-sub-sep" aria-hidden />
-              <span>{providerStatus.configured ? "模型服务已接通" : "模型服务未接通"}</span>
+              <span>{providerStatus.configured ? "智能研判已接通" : "智能研判未接通"}</span>
               <span className="pane-sub-sep" aria-hidden />
               <span>演示数据已脱敏</span>
             </div>
@@ -219,7 +219,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
           />
         </div>
 
-        <div className="prompt-rail-landing" aria-label="内置业务 prompt" data-prompt-rail>
+        <div className="prompt-rail-landing" aria-label="内置业务任务" data-prompt-rail>
           <span className="prompt-rail-label mono">
             <LightningBoltIcon /> 常用任务 · 点一句开始核价
           </span>
@@ -332,8 +332,8 @@ function ContentLadderSection() {
         </div>
         <h2>不是固定按钮：它会盯政策、复核价格，也会记住人工确认过的边界。</h2>
         <p className="landing-section-lead">
-          价序每跑一次任务走完七步。第 5 步对照政策事实抓漂移，第 6 步把人审结论学成规则。
-          每一步都有留痕，回放能看到它当时为什么这么做。
+          价序每核查一次会走完七步。第 5 步对照政策依据抓风险，第 6 步把人审结论整理成规则。
+          每一步都有留痕，过程回看能看到它当时为什么这么做。
         </p>
       </header>
       <ol className="content-ladder" data-content-ladder>
@@ -362,10 +362,10 @@ function ProductLoopSection({ loop }: { loop: { label: string; into: string }[] 
         <div className="agent-eyebrow">
           <span className="mono">留痕链路 · 结果怎么追溯</span>
         </div>
-        <h2>从政策事实到规则候选，每一步都能对账。</h2>
+        <h2>从政策依据到待审规则，每一步都能对账。</h2>
         <p className="landing-section-lead">
-          改一条政策事实，漂移、复核任务、决策日志、规则候选逐格变化。
-          回放能查到每一条规则是从哪几条人审决策学来的。
+          改一条政策依据，风险记录、复核任务、决策留痕、待审规则逐格变化。
+          过程回看能查到每一条规则是从哪几条人工确认学来的。
         </p>
       </header>
       <ol className="loop-track" data-loop-track>
@@ -388,12 +388,12 @@ function ProofSection({
   providerStatus: ProviderStatus;
 }) {
   const proofs = [
-    { k: "real_provider", label: "真实模型服务", value: providerStatus.configured ? providerStatus.model : "未配置" },
-    { k: "durable", label: "全程留痕", value: "本地库保存，可回放" },
-    { k: "drift", label: "政策漂移可复现", value: "policy_fact 变更 → 重跑即检出" },
-    { k: "learn", label: "规则可审计", value: "rule_candidate ← source_decision_ids" },
+    { k: "real_provider", label: "智能研判状态", value: providerStatus.configured ? "已接通" : "未接通" },
+    { k: "durable", label: "全程留痕", value: "记录保存，可回看" },
+    { k: "drift", label: "政策变化可复核", value: "政策依据变更后再次核查即检出" },
+    { k: "learn", label: "规则可审计", value: "规则来源于人工确认记录" },
     { k: "guardrail", label: "敏感项永远人审", value: "麻醉/精神类 · critical 不自动" },
-    { k: "recover", label: "失败不假成功", value: "服务失败时保留人工确认" },
+    { k: "recover", label: "失败不假成功", value: "研判失败时保留人工确认" },
     { k: "data", label: "演示数据", value: "合成/脱敏" },
   ];
   return (
@@ -405,7 +405,7 @@ function ProofSection({
         </div>
         <h2>现场复跑：接入数据、选一句任务、看结果。</h2>
         <p className="landing-section-lead">
-          以下事实可现场验证。模型服务不可用时不会生成假线索；
+          以下事实可现场验证。智能研判不可用时不会生成假线索；
           拿不准的字段会转人工确认，不会硬写。
         </p>
       </header>
@@ -423,7 +423,7 @@ function ProofSection({
           <TargetIcon /> 进入工作台复跑
         </Link>
         <Link href="/settings" className="landing-cta ghost">
-          查看模型服务设置
+          查看研判设置
         </Link>
       </div>
     </section>
@@ -447,7 +447,7 @@ function LandingFooter() {
           <span className="pane-sub-sep" aria-hidden />
           <span>合成/脱敏演示数据</span>
           <span className="pane-sub-sep" aria-hidden />
-          <span>全程留痕可回放</span>
+          <span>全程留痕可回看</span>
         </div>
         <div className="landing-footer-cta">
           <Link href="/workspace" className="landing-cta primary small" data-cta-footer>

@@ -166,7 +166,7 @@ export default async function LeadPage({
 
             <section className="gate-card lead-side-card">
               <div className="panel-head tight">
-                <strong>处置回放</strong>
+                <strong>处置过程</strong>
                 <span className="mono">{replay.length} 步</span>
               </div>
               <div style={{ marginTop: 12 }}>

@@ -2,8 +2,8 @@ import Link from "next/link";
 
 const TABS = [
   { key: "result", label: "结果", path: "result" },
-  { key: "replay", label: "运行回放", path: "replay" },
-  { key: "proof", label: "目录与规则", path: "proof" },
+  { key: "replay", label: "过程回看", path: "replay" },
+  { key: "proof", label: "依据与规则", path: "proof" },
   { key: "approval", label: "核验记录", path: "approval" },
 ];
 

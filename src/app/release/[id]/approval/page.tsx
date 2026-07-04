@@ -32,12 +32,12 @@ export default async function ApprovalPage({
 
         {approvals.length === 0 ? (
           <div className="gate-card approval-empty">
-            <p className="approval-empty-title">本批次最近一次运行没有产生核验对象。</p>
+            <p className="approval-empty-title">本批次最近一次核查没有产生核验对象。</p>
             <p className="approval-empty-lead">
               集采未落地、参考价涨幅异常或未知渠道会进入「需核验」并生成核验对象。
             </p>
             <Link href={`/release/${id}`} className="approval-empty-link">
-              运行价格治理试试 →
+              发起价格治理试试 →
             </Link>
           </div>
         ) : (
@@ -69,9 +69,9 @@ export default async function ApprovalPage({
 
                 {policy && (
                   <details className="approval-details">
-                    <summary>采购渠道策略快照（核验依据）</summary>
+                    <summary>采购渠道策略（核验依据）</summary>
                     <pre className="mono approval-pre">
-                      {JSON.stringify(policy, null, 2)}
+                      {formatPolicySnapshot(policy)}
                     </pre>
                   </details>
                 )}
@@ -191,4 +191,15 @@ export default async function ApprovalPage({
       `}</style>
     </div>
   );
+}
+
+function formatPolicySnapshot(policy: unknown): string {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return "暂无可读核验依据。";
+  return Object.entries(policy as Record<string, { regions?: string[]; channels?: string[]; note?: string }>)
+    .map(([name, item]) => {
+      const regions = Array.isArray(item.regions) ? item.regions.join("、") : "未列明";
+      const channels = Array.isArray(item.channels) ? item.channels.join("、") : "未列明";
+      return `${name}\n适用地区：${regions}\n采购渠道：${channels}\n说明：${item.note ?? "—"}`;
+    })
+    .join("\n\n");
 }

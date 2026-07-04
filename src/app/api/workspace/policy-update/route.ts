@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { simulatePolicyUpdate } from "@/lib/workspace/drift";
 import { getDb } from "@/lib/db";
 
@@ -14,11 +14,11 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "请求格式不正确，请重新提交。" }, { status: 400 });
   }
 
   if (!body.itemCode) {
-    return NextResponse.json({ ok: false, message: "缺少 itemCode。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "缺少项目编码。" }, { status: 400 });
   }
 
   const result = simulatePolicyUpdate(body.itemCode, {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   });
 
   if (!result.updated) {
-    return NextResponse.json({ ok: false, message: "未找到该 item_code 的政策事实。" }, { status: 404 });
+    return NextResponse.json({ ok: false, message: "未找到该项目编码对应的政策依据。" }, { status: 404 });
   }
 
   // 读回更新后的 baseline 供前端展示
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: `政策事实已更新（${body.itemCode}）。下次 run 将检出漂移。`,
+    message: `政策依据已更新（${body.itemCode}）。再次核查将检出政策变化风险。`,
     baseline: updated,
     drift_expected: result.drift_expected,
   });

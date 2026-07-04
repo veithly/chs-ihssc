@@ -16,7 +16,7 @@ export default function ImportPage() {
           </div>
           <h1 className="import-page-title">补一批来源</h1>
           <p className="import-page-lead">
-            CSV 只是补来源的一种方式。真实使用里，这里可以接省平台、院端回传、投诉线索和人工补证材料。
+            表格只是补来源的一种方式。真实使用里，这里可以接省平台、院端回传、投诉线索和人工补证材料。
           </p>
         </header>
         <ImportForm />

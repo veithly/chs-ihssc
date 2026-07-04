@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createReleaseWithRows } from "@/lib/seed";
 import { PRICE_OPTIONS, PROCUREMENT_CHANNELS, REGION_OPTIONS, type FixtureRow } from "@/lib/fixtures";
 
@@ -101,10 +101,10 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as { title?: string; csv?: string };
   } catch {
-    return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "请求格式不正确，请重新提交。" }, { status: 400 });
   }
   if (!body.csv || !body.csv.trim()) {
-    return NextResponse.json({ ok: false, message: "缺少 CSV 内容。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "缺少表格内容。" }, { status: 400 });
   }
 
   const { rows, error } = parseCsv(body.csv);

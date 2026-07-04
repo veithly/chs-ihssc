@@ -68,9 +68,9 @@ export default async function ResultPage({
 
         {!run ? (
           <div className="gate-card result-empty-card">
-            <p className="result-empty-title">该批次尚未运行价格治理。</p>
+            <p className="result-empty-title">该批次尚未发起价格治理核查。</p>
             <p className="result-empty-lead">
-              回到价格治理工作台，对整批价格明细运行一次监测。
+              回到价格治理工作台，对整批价格明细发起一次核查。
             </p>
             <Link href={`/release/${id}`} className="cta-primary" style={{ maxWidth: 240 }}>
               前往价格治理
@@ -115,7 +115,7 @@ function ResultBody({
       <section className="gate-card result-main fade-in">
         <div className="result-main-head">
           <div className="result-main-id">
-            <span className="result-main-kicker mono">RUN · 价格治理批次</span>
+            <span className="result-main-kicker mono">本次核查 · 价格治理批次</span>
             <span className="mono result-main-id-text">{run.release_id}</span>
           </div>
           <StateBadge state={run.result_state} size="3" />
@@ -125,9 +125,9 @@ function ResultBody({
           <Callout.Root color="gray" style={{ marginTop: 16 }}>
             <Callout.Icon><CrossCircledIcon /></Callout.Icon>
             <Callout.Text>
-              <strong>检查不可执行（{run.error_category}）。</strong> Provider/凭证不可用，已写入「检查失败」并保留可回放降级记录，未输出任何伪造结论。请在
+              <strong>检查不可执行（{run.error_category}）。</strong> 智能研判配置不可用，已写入「检查失败」并保留过程记录，未输出任何伪造结论。请在
               <Link href="/settings" style={{ color: "var(--gate-accent)" }}> 设置 </Link>
-              确认凭证后，回到
+              确认配置后，回到
               <Link href={`/release/${run.release_id}`} style={{ color: "var(--gate-accent)" }}> 价格治理 </Link>
               重试。
             </Callout.Text>
@@ -139,7 +139,7 @@ function ResultBody({
               <div className="result-summary-line">
                 扫描 <strong className="mono">{stats.scanned ?? 0}</strong> 行 · 命中{" "}
                 <strong className="mono">{stats.issues ?? 0}</strong> 处问题 ·{" "}
-                <strong className="mono">{stats.validations ?? 0}</strong> 次确定性校验
+                <strong className="mono">{stats.validations ?? 0}</strong> 次规则校验
               </div>
               <div className="mono result-summary-meta">
                 {run.id} · {run.finished_at.slice(0, 19).replace("T", " ")} · {run.duration_ms}ms
@@ -285,19 +285,19 @@ function ResultBody({
 
       <aside className="gate-card result-aside fade-in">
         <div className="result-aside-head">
-          <strong>运行时间线</strong>
+          <strong>核查过程</strong>
           <Badge variant="soft" color="gray" className="mono" radius="full">{run.id.slice(0, 14)}</Badge>
         </div>
         <ReplayTimelineView events={events} />
         <div className="result-aside-foot">
           <Link href={`/release/${run.release_id}/replay`} className="result-aside-link">
-            查看完整执行日志 →
+            查看完整过程 →
           </Link>
         </div>
         <div className="result-aside-meta mono">
-          provider · {plan.source === "live-provider" ? "live" : "降级"}
+          研判状态 · {plan.source === "live-provider" ? "已接通" : "仅保留可确定结果"}
           <br />
-          plan · {plan.issue_focus}
+          核查重点 · {plan.issue_focus}
         </div>
       </aside>
     </div>

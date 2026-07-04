@@ -14,10 +14,10 @@ export function ProviderStatusBar({
         aria-hidden
       />
       <span>
-        模型服务 ·
+        智能研判 ·
         {status.configured
           ? ` 已接通 · ${status.model}`
-          : " 未接通（仅保留确定性核查）"}
+          : " 未接通（仅保留可确定核查）"}
       </span>
       {policyVersion && (
         <>

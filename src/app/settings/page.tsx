@@ -10,16 +10,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ROLE_BOUNDARIES: { role: string; work: string; boundary: string }[] = [
-  { role: "价格治理岗", work: "导入价格批次、编辑明细、发起治理 run、查看处置建议和回放", boundary: "异常落地、对外函件和高危处置必须转人工核验" },
-  { role: "价格核验人", work: "确认人审任务、补充核验意见、沉淀可复用处置动作", boundary: "不能改写原始 run、政策事实和工具计算结果" },
+  { role: "价格治理岗", work: "导入价格批次、编辑明细、发起核查、查看处置建议和过程回看", boundary: "异常落地、对外函件和高危处置必须转人工核验" },
+  { role: "价格核验人", work: "确认人审任务、补充核验意见、沉淀可复用处置动作", boundary: "不能改写原始数据、政策依据和核查结果" },
   { role: "目录维护员", work: "确认编码纠错、维护价格目录快照、处理目录未命中项", boundary: "不直接判断价格落地是否违规" },
-  { role: "系统管理员", work: "维护模型服务、凭证来源、规则源和演示环境", boundary: "不替业务人员作核验结论" },
+  { role: "系统管理员", work: "维护智能研判服务、访问配置、规则来源和演示环境", boundary: "不替业务人员作核验结论" },
 ];
 
 const HUMAN_GUARDRAILS = [
   "超最高有效价、集采未落地、对外发函、通报和违规认定一律保留人审。",
-  "学习规则必须来自人审决策，经过 dry-run 影响面预览后才能激活。",
-  "Provider 不可用时，系统写入检查失败，不用本地规则伪造成智能体成功。",
+  "学习规则必须来自人审决策，经过影响面预览后才能激活。",
+  "智能研判不可用时，系统写入检查失败，不用本地规则伪造成智能结论。",
 ];
 
 export default async function SettingsPage() {
@@ -46,7 +46,7 @@ export default async function SettingsPage() {
             <strong>运行状态</strong>
             {status.configured ? (
               <Badge color="green" variant="soft" radius="full">
-                <CheckCircledIcon style={{ marginRight: 4 }} /> 模型服务可用
+                <CheckCircledIcon style={{ marginRight: 4 }} /> 智能研判可用
               </Badge>
             ) : (
               <Badge color="amber" variant="soft" radius="full">
@@ -57,24 +57,24 @@ export default async function SettingsPage() {
           {status.configured ? (
             <div className="settings-kv">
               <Row label="服务状态" value="可生成规划、处置建议和机构口径草稿" />
-              <Row label="模型" mono={status.model ?? "-"} />
-              <Row label="服务端来源" mono={status.source ?? "-"} />
+              <Row label="研判能力" mono={status.model ?? "-"} />
+              <Row label="配置来源" mono={status.source ?? "-"} />
               <p className="settings-note">
-                密钥仅在服务端使用，浏览器只看到运行状态和非敏感元数据。
+                访问配置仅在后台使用，浏览器只展示运行状态和非敏感说明。
               </p>
             </div>
           ) : (
             <Callout.Root color="amber">
               <Callout.Icon><ExclamationTriangleIcon /></Callout.Icon>
               <Callout.Text>
-                未发现可用模型服务。字段映射、归并、规则评估等确定性结果仍可查看；机构口径草稿不生成，治理状态诚实标记为检查失败。
+                未发现可用智能研判服务。字段对应、归并、规则评估等可确定结果仍可查看；机构口径草稿不生成，治理状态诚实标记为检查失败。
               </Callout.Text>
             </Callout.Root>
           )}
           <details className="settings-debug">
-            <summary>管理员诊断信息</summary>
+            <summary>运行排查信息</summary>
             <div className="settings-source-order mono">
-              Host：{status.baseUrlHost ?? "-"}；发现顺序：{status.checkedSources.join(" -> ")}
+              服务位置：{status.baseUrlHost ?? "-"}；检查顺序：{status.checkedSources.join(" -> ")}
             </div>
           </details>
         </section>
@@ -89,17 +89,17 @@ export default async function SettingsPage() {
             <Row label="政策/渠道事实" mono={manifest?.procurement_channel_version ?? "-"} />
             <Row label="治理规则" mono={manifest?.release_rule_version ?? "-"} />
             <Row label="参考价来源" mono={manifest?.token_method ?? "-"} />
-            <Row label="数据结构" mono={manifest?.schema_version ?? "-"} />
+            <Row label="表头规范" mono={manifest?.schema_version ?? "-"} />
           </div>
           <p className="settings-note">
-            每次 run 都按这些版本写入回放和审计日志；政策事实变更后，存量执行价会被重新对照并进入漂移队列。
+            每次核查都会按这些版本写入过程回看和决策留痕；政策依据变更后，存量执行价会被重新对照并进入风险队列。
           </p>
         </section>
 
         <section className="gate-card settings-card">
           <div className="settings-card-head">
             <strong>人审与自动化边界</strong>
-            <span className="settings-card-meta mono">{ROLE_BOUNDARIES.length} roles</span>
+            <span className="settings-card-meta mono">{ROLE_BOUNDARIES.length} 类角色</span>
           </div>
           <div className="settings-guardrails">
             {HUMAN_GUARDRAILS.map((item) => (
@@ -131,13 +131,13 @@ export default async function SettingsPage() {
         <section className="gate-card settings-card">
           <div className="settings-card-head">
             <strong>演示环境</strong>
-            <span className="settings-card-meta mono">sample data</span>
+            <span className="settings-card-meta mono">演示数据</span>
           </div>
           <div className="settings-kv settings-demo-grid">
             <div>
               <Row label="数据范围" value="合成/脱敏价格批次，不包含真实敏感医保数据" />
-              <Row label="演示能力" value="导入、编辑、运行、回放、人审、规则候选和自动处置闭环" />
-              <Row label="公开边界" value="评委可重跑样例和查看 replay，但不能跳过人审护栏" />
+              <Row label="演示能力" value="导入、编辑、核查、过程回看、人审、待审规则和自动处置闭环" />
+              <Row label="公开边界" value="评委可重跑样例和查看过程回看，但不能跳过人审护栏" />
               <div style={{ marginTop: 14 }}>
                 <ResetSampleButton />
               </div>
@@ -145,7 +145,7 @@ export default async function SettingsPage() {
             <div className="settings-companion">
               <div className="settings-card-head compact">
                 <strong>界面辅助</strong>
-                <span className="settings-card-meta mono">optional</span>
+                <span className="settings-card-meta mono">可选</span>
               </div>
               <p className="settings-note">
                 仅用于演示时提示运行状态，不参与任何业务判断。
