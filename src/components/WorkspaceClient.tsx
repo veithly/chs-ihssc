@@ -235,10 +235,16 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     });
     return [...base, ...optimistic];
   }, [runningText, pendingInstruction, snapshot.messages, thread?.id]);
+  const visibleMessageWindow = useMemo(() => {
+    const keepCount = 6;
+    const history = messages.length > keepCount ? messages.slice(0, -keepCount) : [];
+    const current = messages.length > keepCount ? messages.slice(-keepCount) : messages;
+    return { history, current };
+  }, [messages]);
 
   useEffect(() => {
     if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+      messageListRef.current.lastElementChild?.scrollIntoView({ block: "end" });
     }
   }, [messages.length, runningText]);
 
@@ -484,9 +490,9 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   function interactWithDesktopPet(mood: "idle" | "running" | "needs_user" | "happy" | "worried") {
     if (mood === "running") {
-      messageListRef.current?.scrollTo({
-        top: messageListRef.current.scrollHeight,
+      messageListRef.current?.lastElementChild?.scrollIntoView({
         behavior: "smooth",
+        block: "end",
       });
       return;
     }
@@ -761,12 +767,18 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             ) : (
               <>
                 {/* 严格按时间顺序渲染；最近一次 run 的执行步骤内联在它的回答之前，像 coding agent */}
-                {messages.map((m, i) => (
-                  <Fragment key={m.id}>
-                    {i === stepsBeforeIndex && <AgentStepsMessage events={events} running={false} />}
+                {visibleMessageWindow.history.length > 0 && (
+                  <ConversationHistorySummary messages={visibleMessageWindow.history} />
+                )}
+                {visibleMessageWindow.current.map((m, i) => {
+                  const absoluteIndex = visibleMessageWindow.history.length + i;
+                  return (
+                    <Fragment key={m.id}>
+                      {absoluteIndex === stepsBeforeIndex && <AgentStepsMessage events={events} running={false} />}
                     <MessageBubble message={m} />
-                  </Fragment>
-                ))}
+                    </Fragment>
+                  );
+                })}
                 {stepsBeforeIndex === messages.length && !isRunning && (
                   <AgentStepsMessage events={events} running={false} />
                 )}
@@ -1688,6 +1700,29 @@ function StageIcon({ name, running }: { name: string; running?: boolean }) {
     case "learn": return <LightningBoltIcon />;
     default: return <CheckCircledIcon />;
   }
+}
+
+function ConversationHistorySummary({ messages }: { messages: ConversationMessage[] }) {
+  const userCount = messages.filter((m) => m.role === "user").length;
+  const assistantCount = messages.filter((m) => m.role === "assistant").length;
+  const last = messages.at(-1);
+  const lastTime = last?.created_at ? last.created_at.slice(5, 16).replace("T", " ") : "";
+  return (
+    <details className="conversation-history-summary">
+      <summary>
+        <span className="history-summary-title">已收起历史对话</span>
+        <span className="history-summary-meta mono">
+          {messages.length} 条 · 你 {userCount} / 价序 {assistantCount}
+          {lastTime ? ` · ${lastTime}` : ""}
+        </span>
+      </summary>
+      <div className="history-message-list">
+        {messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function MessageBubble({ message }: { message: ConversationMessage }) {
