@@ -17,6 +17,8 @@ import {
 import { runWorkspaceTools, type WorkspaceToolResult } from "./workspaceTools";
 import { applyLearnedRules } from "../workspace/rules";
 import { detectPolicyDrift } from "../workspace/drift";
+import { autoApplyRepairsForRun } from "../workspace/repairDecision";
+import { infoFor } from "../issueInfo";
 
 export interface WorkspaceRunInput {
   threadId: string;
@@ -202,6 +204,22 @@ export async function runWorkspaceAgent(
     events,
   });
 
+  // 高置信修复不等人：目录别名等确定性修复立即物理回写数据集，auto_approved 留痕；
+  // 其余（proposed/needs_user）进对话流提案卡等人确认。
+  const autoRepair = autoApplyRepairsForRun(thread.id, runId);
+  if (autoRepair.autoApplied > 0) {
+    insertRunEvent(
+      db,
+      thread.id,
+      runId,
+      "mutate",
+      "自动修复回写",
+      `${autoRepair.autoApplied} 条高置信修复已自动回写数据集（决策日志留痕）；${autoRepair.pendingHuman} 条拿不准的转提案卡待人工确认。`,
+      true,
+      { ...autoRepair },
+    );
+  }
+
   const followupChanged = applyFollowupPolicyIfNeeded(thread.id, runId, instruction);
   if (followupChanged > 0) {
     insertRunEvent(db, thread.id, runId, "mutate", "续办规则已更新", `根据追问更新 ${followupChanged} 条已有流程任务。`, true, {
@@ -282,10 +300,18 @@ function buildAssistantAnswer(
   providerAnswer: string,
   providerQuestion: string,
 ): string {
+  const autoFixed = tools.repairs.filter((r) => r.status === "applied").length;
+  const pendingFix = tools.repairs.length - autoFixed;
   const lines = [
     providerAnswer ||
       `我已先把这批数据跑完：映射 ${tools.stats.mappedFields} 个字段，生成 ${tools.stats.repairs} 条修复 patch，归并 ${tools.stats.groups} 个同品同规组，并创建 ${tools.stats.tasks} 个流程对象。`,
   ];
+  if (autoFixed > 0 || pendingFix > 0) {
+    const parts: string[] = [];
+    if (autoFixed > 0) parts.push(`${autoFixed} 条高置信问题已自动修复并回写数据集（无需人工）`);
+    if (pendingFix > 0) parts.push(`${pendingFix} 条拿不准的在下方提案卡等你确认，可先改值再采纳`);
+    lines.push(parts.join("；") + "。");
+  }
   if (tools.questions.length > 0 || providerQuestion) {
     const question = providerQuestion || tools.questions[0];
     lines.push(`需要你确认一件事：${question}`);
@@ -504,7 +530,8 @@ function persistRun(input: {
       priority: d.severity === "high" ? "high" : "normal",
       due_at: new Date(Date.now() + (d.severity === "high" ? 4 : 24) * 60 * 60 * 1000).toISOString(),
       title: `${d.institution_name} · ${d.item_name}`,
-      detail: d.next_action,
+      // 人话说明：问题是什么（业务名）+ 建议怎么办，不给裸字段
+      detail: `${infoFor(d.issue_type).title}。建议：${d.next_action}`,
       created_at: created,
       updated_at: created,
     });

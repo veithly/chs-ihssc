@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -153,6 +153,37 @@ export function ReleaseGate({
   const [edited, setEdited] = useState<Set<number>>(new Set());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 服务端实时进度（内存态，轮询获取）：让「监测中」看得见每一步在干嘛
+  const [liveStep, setLiveStep] = useState<string | null>(null);
+  const [liveDetail, setLiveDetail] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!running) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      return;
+    }
+    const startedAt = Date.now();
+    pollRef.current = setInterval(async () => {
+      setElapsed(Math.round((Date.now() - startedAt) / 1000));
+      try {
+        const res = await fetch(`/api/agent/release-gate/progress?releaseId=${release.id}`);
+        const data = await res.json();
+        if (data.progress) {
+          setLiveStep(data.progress.step);
+          setLiveDetail(data.progress.detail);
+        }
+      } catch {
+        /* 轮询失败不打断主流程 */
+      }
+    }, 700);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [running, release.id]);
 
   function patchRow(rowIndex: number, field: EditableField, value: string) {
     setRows((prev) =>
@@ -165,6 +196,9 @@ export function ReleaseGate({
     if (running) return;
     setRunning(true);
     setError(null);
+    setLiveStep("observe");
+    setLiveDetail("读取价格明细与目录快照");
+    setElapsed(0);
     try {
       const res = await fetch("/api/agent/release-gate", {
         method: "POST",
@@ -192,13 +226,15 @@ export function ReleaseGate({
     return undefined;
   };
 
-  const agentPlanSteps = [
-    "读取价格明细与目录快照",
-    "判断本批先核哪些风险",
-    "核对标化、集采落地、参考价和渠道",
-    "写入纠错、核验和异常处置对象",
-    "复核结果并保存留痕",
+  // key 与服务端 scanProgress 的 ScanStepKey 对齐，轮询结果直接映射到步骤状态
+  const agentPlanSteps: { key: string; label: string }[] = [
+    { key: "observe", label: "读取价格明细与目录快照" },
+    { key: "plan", label: "内网大模型规划本批先核哪些风险" },
+    { key: "scan", label: "确定性工具逐行核对（标化/集采/参考价/差比价）" },
+    { key: "write", label: "写入纠错、核验和异常处置对象" },
+    { key: "verify", label: "复核结果并保存留痕" },
   ];
+  const liveStepIndex = liveStep ? agentPlanSteps.findIndex((s) => s.key === liveStep) : -1;
 
   return (
     <main
@@ -328,7 +364,7 @@ export function ReleaseGate({
           >
             {running ? (
               <>
-                <ReloadIcon className="spin" /> 监测中
+                <ReloadIcon className="spin" /> 监测中 · {elapsed}s
               </>
             ) : (
               <>运行价格治理 · 整批 {rows.length} 行</>
@@ -338,21 +374,37 @@ export function ReleaseGate({
             <div className="release-run-trace-head">
               <span className="mono">核查步骤</span>
               <span className={`release-run-status ${running ? "running" : "idle"}`}>
-                {running ? "进行中" : "待开始"}
+                {running ? `进行中 · ${elapsed}s` : "待开始"}
               </span>
             </div>
             <ol className="release-run-steps">
-              {agentPlanSteps.map((step, i) => (
-                <li
-                  key={step}
-                  className={`release-run-step ${running ? "active" : ""}`}
-                  style={{ animationDelay: running ? `${i * 90}ms` : undefined }}
-                >
-                  <span className="release-run-step-index mono">{String(i + 1).padStart(2, "0")}</span>
-                  <span className="release-run-step-label">{step}</span>
-                </li>
-              ))}
+              {agentPlanSteps.map((step, i) => {
+                const phase = !running
+                  ? "idle"
+                  : liveStepIndex > i
+                    ? "done"
+                    : liveStepIndex === i
+                      ? "current"
+                      : "waiting";
+                return (
+                  <li
+                    key={step.key}
+                    className={`release-run-step ${running ? "active" : ""} ${phase}`}
+                    data-step-phase={phase}
+                  >
+                    <span className="release-run-step-index mono">
+                      {phase === "done" ? "✓" : phase === "current" ? "●" : String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="release-run-step-label">{step.label}</span>
+                  </li>
+                );
+              })}
             </ol>
+            {running && liveDetail && (
+              <div className="release-run-live mono" data-live-detail>
+                {liveDetail}
+              </div>
+            )}
           </div>
         </div>
       </section>

@@ -19,7 +19,7 @@ export default async function QueuePage() {
 
   return (
     <div className="gate-shell">
-      <AppHeader active="核验队列" />
+      <AppHeader active="批次队列" />
       <Breadcrumb items={["价序", "核验队列"]} />
       <main className="queue-shell">
         <header className="queue-head">

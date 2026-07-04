@@ -9,7 +9,7 @@ V2.3 针对评委实测体验补了三件事：**提案卡进对话流**（agent
 ## Try it
 
 - Demo entry: `/`（landing，有实时工作台统计 + 业务 prompt rail）
-- First action: 点 hero prompt `核完并闭环处置这批机构执行价异常`
+- First action: 点 hero prompt `按最新政策核对执行价并出处置提案`
 - Workspace: `/workspace?prompt=drift_review_loop&text=...`
 - Inspection: 对话流内嵌「处置提案卡」（修复可编辑采纳、任务可当场批准）+ 右侧业务对象面板（漂移队列 / 人审任务 / 处置建议卡 / 规则候选 / 政策事实 / 数据修复）+ 工具轨迹回放 + 审计日志条
 

@@ -161,9 +161,11 @@ type ChatCallResult =
   | { ok: true; data: ChatCompletionsData; latency: number; jsonModeDropped: boolean }
   | { ok: false; status: number; errText: string; latency: number };
 
-// 内网私有化部署兼容（如医保内网千问 235B）：部分 OpenAI 兼容网关不支持
-// response_format=json_object，直接返回 4xx/5xx。首次带参失败时（排除鉴权/限流），
-// 去掉 response_format 原样重试一次——system prompt 已要求只回 JSON，extractJson 仍可兜底解析。
+// 内网私有化部署兼容（如医保内网千问 235B）：
+// 1) 不发送 response_format=json_object——实测部分网关（含演示网关）开启 json mode 后
+//    会返回键名损坏的伪 JSON（如 {"ordered_steps[{":...}）或不可解析内容；system prompt
+//    已强约束只回 JSON，extractJson 负责解析，比 json mode 更稳。
+// 2) reasoning_effort 属扩展参数，网关不支持直接 4xx 时去参原样重试一次（排除鉴权/限流）。
 async function chatCompletionsCompat(
   url: string,
   apiKey: string,
@@ -171,13 +173,13 @@ async function chatCompletionsCompat(
   timeoutMs = 90000,
 ): Promise<ChatCallResult> {
   const started = Date.now();
-  const attempt = async (withJsonMode: boolean): Promise<Response> => {
+  const attempt = async (withExtras: boolean): Promise<Response> => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const body = withJsonMode
-        ? { ...baseBody, response_format: { type: "json_object" as const } }
-        : baseBody;
+      const { reasoning_effort: _re, ...slimBody } = baseBody;
+      void _re;
+      const body = withExtras ? baseBody : slimBody;
       return await fetch(url, {
         method: "POST",
         headers: {
@@ -248,6 +250,10 @@ export async function generateWorkspacePlan(
   const body = {
     model: config.model,
     temperature: 0.25,
+    // 低思考档：草稿/answer 有硬性字数上限，不需要深思考，实测延迟 ~35s → ~10s。
+    // 不设 max_tokens：网关把隐藏思考计入 completion，封顶会思考吃满预算、content 为空
+    //（finish=length）直接变 unparseable。失控长生成由 90s 超时兜底。
+    reasoning_effort: "low",
     messages: [
       { role: "system", content: WORKSPACE_SYSTEM_PROMPT },
       {
@@ -368,6 +374,10 @@ async function generatePlanWithPrompt(
   const body = {
     model: config.model,
     temperature: 0.2,
+    // 规划 JSON 很小（≈150 字）：低思考档降低延迟；网关不支持 reasoning_effort 时
+    // 兼容层去参重试。不设 max_tokens——思考计入 completion，封顶会出空 content
+    //（finish=length → unparseable）。失控长生成由 90s 超时兜底。
+    reasoning_effort: "minimal",
     messages: [
       { role: "system", content: systemPrompt },
       {

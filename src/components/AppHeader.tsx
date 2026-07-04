@@ -4,6 +4,8 @@ import { Flex } from "@radix-ui/themes";
 const NAV: { href: string; label: string }[] = [
   { href: "/workspace", label: "工作台" },
   { href: "/queue", label: "批次队列" },
+  { href: "/import", label: "批次导入" },
+  { href: "/morning", label: "价格晨会" },
   { href: "/settings", label: "设置" },
 ];
 

@@ -34,14 +34,14 @@ import { DesktopPet } from "@/components/DesktopPet";
 const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = [
   {
     key: "drift_review_loop",
-    label: "核完并闭环处置这批机构执行价异常",
-    text: "请对照最新政策事实核完这批机构执行价：检出政策漂移并生成复核任务；命中已激活规则的直接自动处置；其余转人审；人审结论沉淀为规则候选。",
+    label: "按最新政策核对执行价并出处置提案",
+    text: "请对照最新政策事实（集采中选价、参考价、最高有效价）核对这批机构执行价：检出政策漂移并生成复核任务；高置信数据问题直接自动修复回写；命中已激活规则的自动处置；其余出可编辑提案卡等我确认。",
     hero: true,
   },
   {
     key: "repair_price_batch",
     label: "核完并修复这批价格数据",
-    text: "请核完并修复这批价格数据。能确定的字段和单位先修复；拿不准的问我；可以处置的生成机构核实口径和流程任务。",
+    text: "请核完并修复这批价格数据。能确定的字段、编码和单位直接自动修复回写；拿不准的出提案卡等我确认；可以处置的生成机构核实口径和流程任务。",
   },
   {
     key: "collective_landing",
@@ -1285,6 +1285,23 @@ function BusinessObjectsPanel({
 }
 
 // ===== 漂移队列：政策事实变化后不再合规的存量执行价 =====
+const DRIFT_RULE_LABELS: Record<string, string> = {
+  over_ceiling: "超最高有效价",
+  collective_over_tolerance: "高于集采中选价",
+  reference_price_delta: "参考价涨幅异常",
+  code_invalid: "编码已失效",
+};
+const DRIFT_SEVERITY_LABELS: Record<string, string> = {
+  critical: "红线",
+  high: "高危",
+  medium: "关注",
+};
+const DRIFT_STATUS_LABELS: Record<string, string> = {
+  detected: "已检出",
+  reviewing: "复核中",
+  resolved: "已处置",
+};
+
 function DriftQueueTab({ drifts }: { drifts: DriftRow[] }) {
   if (drifts.length === 0) {
     return (
@@ -1306,13 +1323,17 @@ function DriftQueueTab({ drifts }: { drifts: DriftRow[] }) {
           <div key={d.id} className={`drift-row sev-${d.severity}`} data-drift-row>
             <div className="drift-row-head">
               <span className="drift-code mono">{d.item_code}</span>
-              <span className="drift-type">{d.rule_key}</span>
-              <span className={`drift-sev ${d.severity}`}>{d.severity}</span>
-              <span className={`drift-status mono ${d.status}`}>{d.status}</span>
+              <span className="drift-type">{DRIFT_RULE_LABELS[d.rule_key] ?? d.rule_key}</span>
+              <span className={`drift-sev ${d.severity}`}>
+                {DRIFT_SEVERITY_LABELS[d.severity] ?? d.severity}
+              </span>
+              <span className={`drift-status mono ${d.status}`}>
+                {DRIFT_STATUS_LABELS[d.status] ?? d.status}
+              </span>
             </div>
             <div className="drift-row-detail mono">
-              政策价 {String(baselineVal)} → 观察价 {String(observedVal)}
-              {typeof observed.over_pct === "number" ? `（超 ${(observed.over_pct * 100).toFixed(1)}%）` : ""}
+              政策价 {String(baselineVal)} 元 → 本批最高 {String(observedVal)}
+              {typeof observed.over_pct === "number" ? ` 元（超 ${(observed.over_pct * 100).toFixed(1)}%）` : ""}
               {typeof baseline.source_hash === "string" ? ` · 依据#${String(baseline.source_hash).slice(0, 8)}` : ""}
             </div>
           </div>
@@ -1324,6 +1345,9 @@ function DriftQueueTab({ drifts }: { drifts: DriftRow[] }) {
 
 // ===== 人审任务：批准（选 final_action）/ 驳回；人审反馈是规则挖掘的数据源 =====
 const DECIDED_TASK_STATUSES = new Set(["已人审确认", "已驳回", "自动处置"]);
+
+const PRIORITY_LABELS: Record<string, string> = { high: "高优先", normal: "常规", low: "低" };
+const priorityLabel = (p: string) => PRIORITY_LABELS[p] ?? p;
 
 function defaultActionFor(taskType: string): string {
   if (taskType.includes("集采")) return "集采催办";
@@ -1351,7 +1375,7 @@ function TaskReviewTab({
         return (
           <div key={task.id} className="object-row task-row" data-task-row data-task-id={task.id} data-task-status={task.status}>
             <strong>
-              {task.task_type} · {task.priority}
+              {task.task_type} · {priorityLabel(task.priority)}
               <span className={`task-status-chip mono s-${task.status}`}>{task.status}</span>
             </strong>
             <span>
@@ -1412,8 +1436,22 @@ function ProposalCardsMessage({
 }) {
   const [valueById, setValueById] = useState<Record<string, string>>({});
   const [taskActionById, setTaskActionById] = useState<Record<string, string>>({});
+  // 人在卡片上点过的修复 id：applied 状态由此区分「已自动修复」和「已采纳」
+  const [humanDecidedIds, setHumanDecidedIds] = useState<Set<string>>(new Set());
+
+  const decideRepair = (id: string, decision: "apply" | "dismiss", afterValue?: string) => {
+    setHumanDecidedIds((s) => new Set(s).add(id));
+    return onDecideRepair(id, decision, afterValue);
+  };
+  const applyAll = (ids: string[], valueMap: Record<string, string>) => {
+    setHumanDecidedIds((s) => new Set([...s, ...ids]));
+    return onApplyAll(ids, valueMap);
+  };
 
   const pendingRepairs = repairs.filter((r) => PENDING_REPAIR_STATUSES.has(r.status));
+  const autoFixedCount = repairs.filter(
+    (r) => r.status === "applied" && !humanDecidedIds.has(r.id),
+  ).length;
   const pendingTasks = tasks.filter((t) => !DECIDED_TASK_STATUSES.has(t.status));
 
   // 首次渲染时固定行序（待办在前），之后保持稳定：决策后原地变 ✓/已忽略，行不跳走。
@@ -1446,7 +1484,13 @@ function ProposalCardsMessage({
           <section className="proposal-section" data-proposal-repairs>
             <header className="proposal-section-head">
               <strong>
-                数据修复（待采纳 {pendingRepairs.length} / 共 {repairs.length}）
+                数据修复
+                {autoFixedCount > 0 && (
+                  <span className="proposal-auto-chip" data-auto-fixed>
+                    已自动修复 {autoFixedCount} 条
+                  </span>
+                )}
+                （待确认 {pendingRepairs.length} / 共 {repairs.length}）
               </strong>
               {pendingRepairs.length > 1 && (
                 <button
@@ -1454,7 +1498,7 @@ function ProposalCardsMessage({
                   data-apply-all-repairs
                   disabled={busy}
                   onClick={() =>
-                    onApplyAll(
+                    applyAll(
                       pendingRepairs.map((r) => r.id),
                       Object.fromEntries(pendingRepairs.map((r) => [r.id, valueOf(r)])),
                     )
@@ -1503,7 +1547,7 @@ function ProposalCardsMessage({
                           data-repair-apply
                           disabled={busy}
                           title="采纳后立即回写数据集该行，重跑核查即按修复后数据"
-                          onClick={() => onDecideRepair(r.id, "apply", valueOf(r))}
+                          onClick={() => decideRepair(r.id, "apply", valueOf(r))}
                         >
                           采纳并回写
                         </button>
@@ -1511,7 +1555,7 @@ function ProposalCardsMessage({
                           className="mini-btn"
                           data-repair-dismiss
                           disabled={busy}
-                          onClick={() => onDecideRepair(r.id, "dismiss")}
+                          onClick={() => decideRepair(r.id, "dismiss")}
                         >
                           忽略
                         </button>
@@ -1520,7 +1564,8 @@ function ProposalCardsMessage({
                       <span className={`proposal-state ${r.status}`}>
                         {r.status === "applied" ? (
                           <>
-                            <CheckCircledIcon /> 已回写数据集
+                            <CheckCircledIcon />{" "}
+                            {humanDecidedIds.has(r.id) ? "已采纳回写" : "已自动修复回写"}
                           </>
                         ) : (
                           "已忽略"
@@ -1545,6 +1590,12 @@ function ProposalCardsMessage({
               <strong>
                 待批处置（待人审 {pendingTasks.length} / 共 {tasks.length}）
               </strong>
+              <span
+                className="proposal-section-note"
+                title="护栏规则：政策漂移、超中选价、编码失效等敏感结论永远人工拍板；非敏感项在规则激活后由系统自动处置"
+              >
+                敏感结论按护栏必须人工拍板
+              </span>
             </header>
             {visibleTasks.map((t) => {
               const pending = !DECIDED_TASK_STATUSES.has(t.status);
@@ -1558,7 +1609,7 @@ function ProposalCardsMessage({
                 >
                   <div className="proposal-row-main">
                     <span className="proposal-loc mono">
-                      {t.task_type} · {t.priority}
+                      {t.task_type} · {priorityLabel(t.priority)}
                     </span>
                     <span className="proposal-task-title">
                       {t.title}：{t.detail}

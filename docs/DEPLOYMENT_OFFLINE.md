@@ -83,7 +83,7 @@ npx next start -p 3000
 | 1 | `curl -X POST localhost:3000/api/admin/reseed` | `ok:true`，5 个批次 156 行 |
 | 2 | 打开 `/`，看 landing 实时统计 | 数字非零，无报错 |
 | 3 | `/release/REL-2026-0623-07` 点「启动扫描」 | 状态到「异常处置」，结果页出现差比价折算超限 + 红/黄预警徽标 |
-| 4 | `/workspace` 上传 `public/samples/settlement-sample.csv`，指令「核完并闭环处置这批机构执行价异常」 | 生成字段映射/归并组/流程任务，YP-AXL-005 出差比价核验任务 |
+| 4 | `/workspace` 上传 `public/samples/settlement-sample.csv`，指令「按最新政策核对执行价并出处置提案」 | 生成字段映射/归并组/流程任务，YP-AXL-005 出差比价核验任务 |
 | 4.5 | 回答下方「价序的处置提案」卡：编辑一条修复值「采纳并回写」，批准一条任务 | 修复回写数据集、任务就地更新，`approval_decision_log` 留痕 |
 | 5 | 「政策事实」tab 点 `政策变更演示 640→560` 后重跑 | 漂移队列检出存量执行价漂移 |
 | 6 | 打开任一任务的「处置结果单」 | 报告页 200 渲染 |

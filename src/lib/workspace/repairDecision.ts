@@ -113,6 +113,48 @@ export function decideRepairPatch(input: RepairDecisionInput): RepairDecisionRes
   };
 }
 
+// ===== 高置信修复自动回写 =====
+// 确定性工具标记 status='applied' 的修复（价格目录高置信别名等，置信度 ≥0.9）不等人：
+// run 落库后立即物理回写数据集并写 auto_approved 决策日志。人只确认 proposed/needs_user 的那部分。
+export function autoApplyRepairsForRun(
+  threadId: string,
+  runId: string,
+): { autoApplied: number; pendingHuman: number } {
+  const db = getDb();
+  const patches = db
+    .prepare("SELECT * FROM repair_patch WHERE run_id = :runId")
+    .all({ runId }) as unknown as RepairPatchRow[];
+  const now = workspaceNow();
+  let autoApplied = 0;
+
+  for (const patch of patches) {
+    if (patch.status !== "applied" || !patch.after_value?.trim()) continue;
+    const write = applyPatchToDataset(db, patch, patch.after_value.trim(), now);
+    if (!write.ok) continue;
+    autoApplied += 1;
+    logDecision(db, {
+      thread_id: threadId,
+      run_id: runId,
+      target_type: "repair_patch",
+      target_id: patch.id,
+      decision: "auto_approved",
+      reason_codes: ["auto_repair_high_confidence", "deterministic_catalog_alias"],
+      context: {
+        field: patch.field,
+        row_index: patch.row_index,
+        before_value: patch.before_value,
+        after_value: patch.after_value,
+        confidence: patch.confidence,
+      },
+      actor_type: "agent",
+      actor_id: "价序修复引擎",
+    });
+  }
+
+  const pendingHuman = patches.filter((p) => PENDING_STATUSES.has(p.status)).length;
+  return { autoApplied, pendingHuman };
+}
+
 // 把修复值真正写回数据集（rows_json 对应行）；列名优先取本次 run 的字段映射，缺列则补列。
 function applyPatchToDataset(
   db: ReturnType<typeof getDb>,

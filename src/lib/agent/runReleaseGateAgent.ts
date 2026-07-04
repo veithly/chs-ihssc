@@ -10,6 +10,11 @@ import {
 } from "../repo";
 import { generateAgentPlan } from "../provider";
 import {
+  beginScanProgress,
+  endScanProgress,
+  updateScanProgress,
+} from "./scanProgress";
+import {
   VALIDATORS,
   aggregateState,
   classifyRow,
@@ -74,11 +79,13 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     };
   }
 
+  beginScanProgress(release.id);
   const manifest = getManifest(release.id);
   const accessSnapshot = getAccessSnapshot(release.id);
 
   // ---- Observe (whole batch) ----
-  const sample = rows.slice(0, 12).map((r) => ({
+  // 抽样 6 行给规划器参考足够定 issue_focus；样本越大思考型网关"想"得越久（延迟大头）
+  const sample = rows.slice(0, 6).map((r) => ({
     row_index: r.row_index,
     item_code: r.item_code,
     item_name: r.item_name,
@@ -121,6 +128,11 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   });
 
   // ---- Plan (LIVE provider, on the critical path) ----
+  updateScanProgress(
+    release.id,
+    "plan",
+    `已读 ${rows.length} 行，正在调用内网大模型生成治理规划（大模型响应一般 5~30 秒，超 90 秒自动降级）`,
+  );
   const planResult = await generateAgentPlan(observation);
 
   if (!planResult.ok) {
@@ -170,6 +182,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     });
     insertReplay(db, runId, release.id, replay);
     updateReleaseState(release.id, "检查失败", runId);
+    endScanProgress(release.id);
 
     return {
       ok: false,
@@ -193,6 +206,11 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   });
 
   // ---- Tools: scan EVERY row with the deterministic validators ----
+  updateScanProgress(
+    release.id,
+    "scan",
+    `规划完成（重点=${plan.issue_focus}），${VALIDATORS.length} 个确定性工具逐行核对 ${rows.length} 行`,
+  );
   const createdIso = new Date().toISOString();
   const byState: Record<string, number> = {
     可落地: 0,
@@ -436,7 +454,13 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     ok: true,
   });
 
+  updateScanProgress(
+    release.id,
+    "write",
+    `命中问题 ${issues} 处，写入纠错 ${corrections} · 异常处置 ${quarantines} · 核验 ${approvals}`,
+  );
   updateReleaseState(release.id, state, runId);
+  updateScanProgress(release.id, "verify", `复核治理状态 → ${state}，保存审计留痕`);
   const verified = getRelease(release.id);
   replay.push({
     phase: "verify",
@@ -501,6 +525,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     finishedIso,
   });
   insertReplay(db, runId, release.id, replay);
+  endScanProgress(release.id);
 
   return {
     ok: true,

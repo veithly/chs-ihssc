@@ -15,14 +15,14 @@ import type { ProviderStatus } from "@/lib/env";
 const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = [
   {
     key: "drift_review_loop",
-    label: "核完并闭环处置这批机构执行价异常",
-    text: "请对照最新政策事实核完这批机构执行价：检出政策漂移并生成复核任务；命中已激活规则的直接自动处置；其余转人审；人审结论沉淀为规则候选。",
+    label: "按最新政策核对执行价并出处置提案",
+    text: "请对照最新政策事实（集采中选价、参考价、最高有效价）核对这批机构执行价：检出政策漂移并生成复核任务；高置信数据问题直接自动修复回写；命中已激活规则的自动处置；其余出可编辑提案卡等我确认。",
     hero: true,
   },
   {
     key: "repair_price_batch",
     label: "核完并修复这批价格数据",
-    text: "请核完并修复这批价格数据。能确定的字段和单位先修复；拿不准的问我；可以处置的生成机构核实口径和流程任务。",
+    text: "请核完并修复这批价格数据。能确定的字段、编码和单位直接自动修复回写；拿不准的出提案卡等我确认；可以处置的生成机构核实口径和流程任务。",
   },
   {
     key: "collective_landing",
