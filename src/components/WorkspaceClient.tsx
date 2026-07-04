@@ -1005,6 +1005,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               <span className="mono">Ctrl/⌘ + Enter 发送</span>
               <Button
                 size="3"
+                data-composer-send
                 disabled={busy === "run" || !composer.trim()}
                 onClick={() => runInstruction(composer)}
               >

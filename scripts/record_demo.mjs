@@ -81,7 +81,7 @@ const DECK_SCENES_POST = [
 const CAPTION_TEXT = {
   s1: "把表格交给它，再用一句话说要做什么",
   s2: "政策跟不住 · 口径对不齐 · 审批负担重",
-  demo1: "真实模型核价 · 2452号差比价折算 · 拿不准转人审",
+  demo1: "高置信自动修复回写 · 提案卡当场采纳 · 拿不准转人审",
   demo2: "真实抓取医保局公告 · 人审确认 640→560 · 漂移检出",
   demo3: "人审选处置动作，写进不可变决策日志",
   demo4: "从人审结论整理规则 · 影响面预览 · 人工激活",
@@ -94,7 +94,7 @@ const CAPTION_TEXT = {
 };
 // Short on-footage pointers during the demo (one per demo narration segment).
 const CALLOUT_TEXT = {
-  demo1: "真实 run · 差比价折算 · 政策版本指纹",
+  demo1: "自动修复回写 · 提案卡对话内采纳",
   demo2: "政策同步 → 公告人审确认 → 漂移队列",
   demo3: "批准处置 → 决策日志",
   demo4: "挖掘 → 影响面 → 激活",
@@ -276,6 +276,19 @@ async function recordProductFootage() {
   await wait(1400);
   await page.mouse.wheel(0, 420);
   await wait(1300);
+  // 会话流提案卡：镜头先看"已自动修复 N 条"，再当场采纳一条拿不准的修复。
+  const proposalCard = page.locator("[data-proposal-card]").first();
+  if ((await proposalCard.count()) > 0) {
+    await glance(proposalCard.locator("[data-auto-fixed]").first());
+    await wait(1500);
+    const applyBtn = proposalCard.locator("[data-repair-apply]").first();
+    if ((await applyBtn.count()) > 0) {
+      await glance(applyBtn);
+      await wait(800);
+      await applyBtn.click(QUICK).catch(() => {});
+      await wait(1800);
+    }
+  }
   await page.mouse.wheel(0, -700);
   await wait(1000);
   const spikes1 = await spikeTaskTitles(threadId);
@@ -289,7 +302,7 @@ async function recordProductFootage() {
 
   // ---- beat b2: 政策获取（真实抓取公告）→ 公告人审确认 640→560 → 重跑 --------
   mark("b2-policy", "action");
-  await openObjectTab("政策事实");
+  await openObjectTab("政策依据");
   await wait(1400);
   // 1) 政策同步：真实抓取国家医保局公开公告 → artifact 落库（hash 留痕）
   let confirmedViaArtifact = false;
@@ -345,9 +358,12 @@ async function recordProductFootage() {
       .catch(() => {});
     await wait(2600);
   }
+  // 提示词 chip 现在只填入输入框（不直接开跑）：点 chip → 点「开始核查」
   const runWait2 = nextRunResponse();
   await page.locator(`[data-prompt-chip][data-prompt-key="${HERO_PROMPT_KEY}"]`).click();
-  await wait(400);
+  await wait(700);
+  await page.locator("[data-composer-send]").click(QUICK);
+  await wait(300);
 
   mark("b2-wait", "wait");
   await idleUntil(runWait2);
@@ -405,7 +421,7 @@ async function recordProductFootage() {
 
   // ---- beat b4: mine → dry-run → activate -----------------------------------
   mark("b4-rules", "action");
-  await openObjectTab("规则候选");
+  await openObjectTab("待审规则");
   await wait(1200);
   const mineBtn = page.locator("button", { hasText: /从人审(结论整理规则|反馈挖掘候选)/ }).first();
   await mineBtn.hover(QUICK).catch(() => {});
@@ -438,6 +454,8 @@ async function recordProductFootage() {
   // ---- beat b5: run③ — learned rule auto-disposes, audit strip --------------
   const runWait3 = nextRunResponse();
   await page.locator(`[data-prompt-chip][data-prompt-key="${HERO_PROMPT_KEY}"]`).click();
+  await wait(600);
+  await page.locator("[data-composer-send]").click(QUICK);
   await wait(300);
   mark("b5-wait", "wait");
   await idleUntil(runWait3);
