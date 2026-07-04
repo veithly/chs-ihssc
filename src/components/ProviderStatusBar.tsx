@@ -14,15 +14,15 @@ export function ProviderStatusBar({
         aria-hidden
       />
       <span>
-        Provider ·
+        模型服务 ·
         {status.configured
-          ? ` 就绪 · ${status.baseUrlHost} · ${status.model}`
-          : " 未配置（降级模式）"}
+          ? ` 已接通 · ${status.model}`
+          : " 未接通（仅保留确定性核查）"}
       </span>
       {policyVersion && (
         <>
           <span className="provider-status-sep" aria-hidden>·</span>
-          <span className="mono">策略版本 {policyVersion}</span>
+          <span className="mono">政策版本 {policyVersion}</span>
         </>
       )}
       <span className="provider-status-sep" aria-hidden>·</span>

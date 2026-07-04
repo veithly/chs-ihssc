@@ -2,6 +2,7 @@ import { Badge, Callout } from "@radix-ui/themes";
 import { CheckCircledIcon, ExclamationTriangleIcon } from "@radix-ui/react-icons";
 import { AppHeader, Breadcrumb } from "@/components/AppHeader";
 import { ResetSampleButton } from "@/components/ClientButtons";
+import { DesktopPetToggle } from "@/components/DesktopPetToggle";
 import { getProviderStatus } from "@/lib/env";
 import { getManifest } from "@/lib/repo";
 
@@ -109,6 +110,16 @@ export default async function SettingsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section className="gate-card settings-card">
+          <div className="settings-card-head">
+            <strong>陪伴</strong>
+            <span className="settings-card-meta mono">彩蛋</span>
+          </div>
+          <div className="settings-kv">
+            <DesktopPetToggle />
           </div>
         </section>
       </main>

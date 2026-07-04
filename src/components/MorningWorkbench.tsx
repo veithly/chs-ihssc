@@ -94,7 +94,7 @@ export function MorningOpenPanel({
         />
         <div className="consequence" style={{ marginTop: 12 }}>
           <strong>人工边界 · </strong>
-          开晨会后会写入 morning_session、daily_lead、follow_up_task 和 replay_timeline。投诉和异常只能提高优先级，不能直接形成处置结论。
+          开晨会后会形成今日线索、回访任务和可回放记录。投诉和异常只能提高优先级，不能直接形成处置结论。
         </div>
 
         <div className="morning-cta-row">
@@ -109,7 +109,7 @@ export function MorningOpenPanel({
             {busy ? "正在开晨会" : "开晨会"}
           </button>
           <span className="morning-cta-meta mono">
-            {busy ? "agent planning · live provider" : "调用 live provider 规划今日线索"}
+            {busy ? "正在整理今日线索" : "接入模型服务后，可自动排序今日线索"}
           </span>
         </div>
         {error && (
@@ -166,7 +166,7 @@ export function MorningSessionPanel({
           <h1 className="session-title">{session.session_date} 价格处置晨会</h1>
           <p className="session-copy">
             {session.status === "failed"
-              ? String(statusSummary.message || "Provider 未完成规划，系统没有伪造线索。")
+              ? String(statusSummary.message || "模型服务未完成规划，系统没有伪造线索。")
               : `排出 ${session.lead_count} 条今日线索，先处理 ${top?.institution_name_masked || "重点对象"}。`}
           </p>
         </div>
@@ -184,7 +184,7 @@ export function MorningSessionPanel({
             <strong>没有生成机器排序</strong>
           </div>
           <p>
-            这是诚实的失败态：Provider 不可用时，只保留来源摘要和回放，不把本地规则包装成"智能体结论"。
+            这是诚实的失败态：模型服务不可用时，只保留来源摘要和回放，不把本地规则包装成"智能结论"。
           </p>
         </section>
       ) : (

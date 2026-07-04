@@ -193,11 +193,11 @@ export function ReleaseGate({
   };
 
   const agentPlanSteps = [
-    "observe · 读取价格明细与目录快照",
-    "plan · 调用 live provider 规划校验顺序",
-    "tools · 标化 / 集采落地 / 参考价 / 渠道",
-    "mutate · 写入纠错、核验、异常处置",
-    "verify · 复跑确定性校验并落 hash",
+    "读取价格明细与目录快照",
+    "判断本批先核哪些风险",
+    "核对标化、集采落地、参考价和渠道",
+    "写入纠错、核验和异常处置对象",
+    "复核结果并保存留痕",
   ];
 
   return (
@@ -304,7 +304,7 @@ export function ReleaseGate({
               <ExclamationTriangleIcon />
             </Callout.Icon>
             <Callout.Text>
-              未发现 Provider 凭证，规划器将进入降级模式并写入「检查失败」（不会伪造成功）。
+              未发现模型服务凭证，本次只保留确定性核查并写入「检查失败」（不会伪造成功）。
             </Callout.Text>
           </Callout.Root>
         )}
@@ -336,9 +336,9 @@ export function ReleaseGate({
           </button>
           <div className="release-run-trace" aria-live="polite">
             <div className="release-run-trace-head">
-              <span className="mono">agent plan · observe → verify</span>
+              <span className="mono">核查步骤</span>
               <span className={`release-run-status ${running ? "running" : "idle"}`}>
-                {running ? "running" : "ready"}
+                {running ? "进行中" : "待开始"}
               </span>
             </div>
             <ol className="release-run-steps">

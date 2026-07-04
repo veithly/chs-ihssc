@@ -65,7 +65,7 @@ export function ResetSampleButton() {
       size="2"
       disabled={busy}
       onClick={async () => {
-        if (!confirm("重置所有示例价格批次与运行记录？将清空当前 agent run / 核验 / 异常处置记录。")) return;
+        if (!confirm("重置所有示例价格批次与运行记录？将清空当前核查、核验和异常处置记录。")) return;
         setBusy(true);
         await fetch("/api/admin/reseed", { method: "POST" });
         setBusy(false);

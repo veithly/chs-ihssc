@@ -59,7 +59,7 @@ const LADDER: { phase: string; title: string; chip: string; detail: string; pain
     phase: "mutate",
     title: "写状态",
     chip: "writer · draft_generator · workflow_router",
-    detail: "修复 patch、漂移记录、复核任务、机构草稿全部写入 SQLite。",
+    detail: "数据修正、漂移记录、复核任务、机构草稿全部留痕保存。",
   },
   {
     phase: "drift",
@@ -87,7 +87,7 @@ const PRODUCT_LOOP: { label: string; into: string }[] = [
   { label: "政策事实", into: "policy_fact · policy_artifact" },
   { label: "上传/连接", into: "uploaded_dataset · data_source_connection" },
   { label: "字段映射", into: "field_mapping" },
-  { label: "修复 patch", into: "repair_patch" },
+  { label: "数据修正", into: "repair_patch" },
   { label: "漂移记录", into: "policy_drift_log" },
   { label: "复核任务", into: "workflow_task" },
   { label: "决策日志", into: "approval_decision_log" },
@@ -161,7 +161,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
   const statsRow = useMemo(() => {
     return [
       { label: "字段映射", value: stats.fieldMappings, hint: "field_mapping" },
-      { label: "修复 patch", value: stats.repairPatches, hint: "repair_patch" },
+      { label: "数据修正", value: stats.repairPatches, hint: "repair_patch" },
       { label: "同品归并", value: stats.matchGroups, hint: "match_group" },
       { label: "流程任务", value: stats.workflowTasks, hint: "workflow_task" },
       { label: "机构草稿", value: stats.institutionDrafts, hint: "institution_draft" },
@@ -184,7 +184,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
             <p className="landing-lead">
               它对照最新政策事实复核每一批机构执行价：检出漂移生成复核任务，
               命中已激活规则的自动处置，其余转人审；人审结论沉淀为规则候选，
-              越用越省人。所有状态与决策写入 SQLite，可回放、可审计。
+              越用越省人。每一步都有记录，评委现场能复跑，业务岗事后能追溯。
             </p>
             <div className="landing-cta-row">
               <Link href="/workspace" className="landing-cta primary" data-cta-primary>
@@ -195,11 +195,11 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
               </Link>
             </div>
             <div className="landing-meta-row mono">
-              <span>agent · v0.1</span>
+              <span>价格复核助手 · v0.1</span>
               <span className="pane-sub-sep" aria-hidden />
-              <span>{providerStatus.configured ? providerStatus.model : "provider 未配置"}</span>
+              <span>{providerStatus.configured ? "模型服务已接通" : "模型服务未接通"}</span>
               <span className="pane-sub-sep" aria-hidden />
-              <span>SQLite · 合成/脱敏</span>
+              <span>演示数据已脱敏</span>
             </div>
           </div>
 
@@ -213,7 +213,7 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
 
         <div className="prompt-rail-landing" aria-label="内置业务 prompt" data-prompt-rail>
           <span className="prompt-rail-label mono">
-            <LightningBoltIcon /> PROMPTS · 点一个直接进工作台
+            <LightningBoltIcon /> 常用任务 · 点一句开始核价
           </span>
           {PROMPTS.map((p) => (
             <button
@@ -261,7 +261,7 @@ function LiveWorkspaceCard({
           <div className="lwc-title">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
-            <strong>最近一次 agent run</strong>
+            <strong>最近一次核查结果</strong>
           </div>
           <div className="lwc-sub mono">
             <span>{runId ? runId.slice(0, 18) : "等待第一次任务"}</span>
@@ -269,7 +269,7 @@ function LiveWorkspaceCard({
         </div>
         <span className={`lwc-state ${hasLiveRun ? "ok" : "idle"}`}>
           <span className="status-dot" aria-hidden />
-          {hasLiveRun ? "ready" : "idle"}
+          {hasLiveRun ? "已生成" : "待开始"}
         </span>
       </div>
 
@@ -281,13 +281,13 @@ function LiveWorkspaceCard({
 
       <div className="lwc-foot mono">
         <span>
-          <CheckCircledIcon /> 处置 {stats[3].value + stats[4].value} 项 · 行 {rowsScanned}
+          <CheckCircledIcon /> 已形成 {stats[3].value + stats[4].value} 个待办/口径 · 核查 {rowsScanned} 行
         </span>
       </div>
 
       <div className="lwc-cta">
         <Link href="/workspace" className="lwc-open" data-cta-open>
-          打开 /workspace <ArrowRightIcon />
+          进入工作台 <ArrowRightIcon />
         </Link>
       </div>
     </aside>
@@ -320,12 +320,12 @@ function ContentLadderSection() {
     <section className="landing-section landing-ladder" data-landing-section="ladder">
       <header className="landing-section-head">
         <div className="agent-eyebrow">
-          <span className="mono">AGENT LOOP · 智能体怎么工作</span>
+          <span className="mono">处理流程 · 系统怎么帮你核</span>
         </div>
-        <h2>不是固定按钮：会盯政策、会复核、会学人审的价格治理 agent。</h2>
+        <h2>不是固定按钮：它会盯政策、复核价格，也会记住人工确认过的边界。</h2>
         <p className="landing-section-lead">
           价序每跑一次任务走完七步。第 5 步对照政策事实抓漂移，第 6 步把人审结论学成规则。
-          每一步的状态都写 SQLite，回放能看到它当时为什么这么做。
+          每一步都有留痕，回放能看到它当时为什么这么做。
         </p>
       </header>
       <ol className="content-ladder" data-content-ladder>
@@ -352,9 +352,9 @@ function ProductLoopSection({ loop }: { loop: { label: string; into: string }[] 
     <section className="landing-section landing-loop" data-landing-section="loop">
       <header className="landing-section-head">
         <div className="agent-eyebrow">
-          <span className="mono">PRODUCT LOOP · 状态怎么落库</span>
+          <span className="mono">留痕链路 · 结果怎么追溯</span>
         </div>
-        <h2>从政策事实到规则候选，闭环全在 SQLite 里。</h2>
+        <h2>从政策事实到规则候选，每一步都能对账。</h2>
         <p className="landing-section-lead">
           改一条政策事实，漂移、复核任务、决策日志、规则候选逐格变化。
           回放能查到每一条规则是从哪几条人审决策学来的。
@@ -380,24 +380,24 @@ function ProofSection({
   providerStatus: ProviderStatus;
 }) {
   const proofs = [
-    { k: "real_provider", label: "真实模型 provider", value: providerStatus.configured ? providerStatus.model : "未配置" },
-    { k: "durable", label: "状态写入", value: "SQLite · node:sqlite" },
+    { k: "real_provider", label: "真实模型服务", value: providerStatus.configured ? providerStatus.model : "未配置" },
+    { k: "durable", label: "全程留痕", value: "本地库保存，可回放" },
     { k: "drift", label: "政策漂移可复现", value: "policy_fact 变更 → 重跑即检出" },
     { k: "learn", label: "规则可审计", value: "rule_candidate ← source_decision_ids" },
     { k: "guardrail", label: "敏感项永远人审", value: "麻醉/精神类 · critical 不自动" },
-    { k: "recover", label: "失败不假成功", value: "auth_failed · recover → 人工确认" },
-    { k: "data", label: "数据", value: "合成/脱敏 · 演示数据源" },
+    { k: "recover", label: "失败不假成功", value: "服务失败时保留人工确认" },
+    { k: "data", label: "演示数据", value: "合成/脱敏" },
   ];
   return (
     <section className="landing-section landing-proof" data-landing-section="proof">
       <header className="landing-section-head">
         <div className="agent-eyebrow ok">
           <span className="status-dot" aria-hidden />
-          <span className="mono">PROOF · 评委可复跑</span>
+          <span className="mono">现场验证 · 评委可复跑</span>
         </div>
-        <h2>从 /workspace 复跑：选数据源、点 prompt、看结果。</h2>
+        <h2>现场复跑：接入数据、选一句任务、看结果。</h2>
         <p className="landing-section-lead">
-          以下事实可现场验证。坏 key 会返回 auth_failed，不会生成假线索；
+          以下事实可现场验证。模型服务不可用时不会生成假线索；
           拿不准的字段会转人工确认，不会硬写。
         </p>
       </header>
@@ -412,10 +412,10 @@ function ProofSection({
       </ol>
       <div className="proof-cta-row">
         <Link href="/workspace" className="landing-cta primary" data-cta-proof>
-          <TargetIcon /> 进 /workspace 复跑
+          <TargetIcon /> 进入工作台复跑
         </Link>
         <Link href="/settings" className="landing-cta ghost">
-          查看 provider 设置
+          查看模型服务设置
         </Link>
       </div>
     </section>
@@ -427,19 +427,19 @@ function LandingFooter() {
     <footer className="landing-footer" data-landing-footer>
       <div className="landing-footer-inner">
         <div className="landing-footer-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
-          <div>
-            <strong>价序</strong>
-            <span className="mono">agent · v0.2 · 政策变更驱动的价格治理闭环</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
+            <div>
+              <strong>价序</strong>
+            <span className="mono">政策变更驱动的价格治理闭环</span>
+            </div>
           </div>
-        </div>
         <div className="landing-footer-meta mono">
           <span>2026 全国智慧医保大赛</span>
           <span className="pane-sub-sep" aria-hidden />
           <span>合成/脱敏演示数据</span>
           <span className="pane-sub-sep" aria-hidden />
-          <span>SQLite · node:sqlite</span>
+          <span>全程留痕可回放</span>
         </div>
         <div className="landing-footer-cta">
           <Link href="/workspace" className="landing-cta primary small" data-cta-footer>

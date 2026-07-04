@@ -25,6 +25,7 @@ import type {
   WorkspaceSnapshot,
 } from "@/lib/types";
 import { DEMO_SOURCES } from "@/lib/workspace/demoSources";
+import { DesktopPet } from "@/components/DesktopPet";
 
 // V2.2 收窄：hero prompt 主打"政策变更后的存量机构执行价复核"，其余为扩展场景。
 const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = [
@@ -66,6 +67,14 @@ const AUTO_SWITCH_ORDER: ObjectTabKey[] = ["drift", "task", "draft", "repair"];
 
 // 人审批准时可选的实际处置动作（final_action，规则挖掘的聚合键之一）
 const FINAL_ACTIONS = ["机构核实", "集采催办", "转数据治理", "排除（误报）"] as const;
+
+function threadStateLabel(state: string) {
+  if (state === "needs_user") return "待人工确认";
+  if (state === "running") return "正在核查";
+  if (state === "complete") return "已形成结果";
+  if (state === "failed") return "核查失败";
+  return "待接入数据";
+}
 
 interface DriftRow {
   id: string;
@@ -186,7 +195,13 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
   const [policy, setPolicy] = useState<PolicyData>(EMPTY_POLICY);
   const [policyMsg, setPolicyMsg] = useState("");
   const [policyBusy, setPolicyBusy] = useState(false);
+  // 桌面小宠物：记录最近一次 run 的结果，供它闪现开心/担忧心情。
+  const [lastRunStatus, setLastRunStatus] = useState<
+    "success" | "degraded" | "failed" | null
+  >(null);
+  const [lastRunEndedAt, setLastRunEndedAt] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
 
   const dataset = snapshot.dataset;
@@ -352,8 +367,12 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       setSnapshot(data.snapshot);
       setComposer("");
       if (!data.ok && data.error_category) {
-        setError(`Provider 降级：${data.error_category}。确定性结果已保留。`);
+        setError(`模型服务异常：${data.error_category}。可确定的核查结果已保留。`);
+        setLastRunStatus("degraded");
+      } else {
+        setLastRunStatus("success");
       }
+      setLastRunEndedAt(Date.now());
       // run 后刷新政策数据：本次检出漂移则自动切到漂移队列，否则切人审任务。
       const fresh = await refreshPolicy();
       const runDrifts = data.runId ? fresh.drifts.filter((d) => d.run_id === data.runId) : [];
@@ -364,6 +383,8 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent 运行失败。");
+      setLastRunStatus("failed");
+      setLastRunEndedAt(Date.now());
     } finally {
       setRunningText("");
       setPendingInstruction("");
@@ -459,6 +480,30 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
   const visibleRules = policy.rules.filter(
     (r) => r.status === "pending_review" || r.status === "active" || r.status === "suspended",
   );
+
+  function interactWithDesktopPet(mood: "idle" | "running" | "needs_user" | "happy" | "worried") {
+    if (mood === "running") {
+      messageListRef.current?.scrollTo({
+        top: messageListRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+      return;
+    }
+    if (mood === "needs_user") {
+      setActiveTab("task");
+      return;
+    }
+    if (mood === "happy") {
+      const next = AUTO_SWITCH_ORDER.find((tab) => objectCounts[tab] > 0);
+      if (next) setActiveTab(next);
+      return;
+    }
+    if (mood === "worried") {
+      setActiveTab(openDrifts.length > 0 ? "drift" : "task");
+      return;
+    }
+    composerRef.current?.focus();
+  }
 
   const objectCounts: Record<ObjectTabKey, number> = {
     drift: openDrifts.length,
@@ -606,19 +651,33 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   return (
     <main className="workspace-shell" data-workspace data-visual-lane="agent-workbench">
+      <DesktopPet
+        isRunning={isRunning}
+        threadState={threadState}
+        lastRunStatus={lastRunStatus}
+        lastRunEndedAt={lastRunEndedAt}
+        context={{
+          driftCount: objectCounts.drift,
+          taskCount: objectCounts.task,
+          draftCount: objectCounts.draft,
+          ruleCount: objectCounts.rule,
+          repairCount: objectCounts.repair,
+        }}
+        onInteract={interactWithDesktopPet}
+      />
       <section className="workspace-band">
         <div className="workspace-band-left">
           <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />
           <div className="workspace-band-text">
             <div className="workspace-band-title">价序工作台 · 政策变更后的执行价复核</div>
             <div className="workspace-band-sub mono">
-              <span className={`state state-${threadState}`}>{threadState}</span>
+              <span className={`state state-${threadState}`}>{threadStateLabel(threadState)}</span>
               <span className="sep" aria-hidden>·</span>
               <span className="provider">
                 <span className={`dot ${providerStatus.configured ? "ok" : "warn"}`} aria-hidden />
                 {providerStatus.configured
-                  ? `${providerStatus.baseUrlHost} / ${providerStatus.model}`
-                  : "provider 未配置"}
+                  ? "模型服务已接通"
+                  : "模型服务未接通"}
               </span>
               {policy.metrics?.policyFingerprint && (
                 <>
@@ -626,7 +685,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
                   <span
                     className="policy-version-chip"
                     data-policy-version
-                    title={`政策事实组合指纹（${policy.metrics.factCount} 条 policy_fact 的 source_hash 汇总）；任一条政策变更此指纹即变化，每次 run 可对账`}
+                    title={`政策事实版本指纹：任一条政策事实变更，指纹都会变化；每次核查结果可对账`}
                   >
                     政策 v#{policy.metrics.policyFingerprint}
                   </span>
@@ -656,43 +715,22 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
           >
             {isRunning ? (
               <>
-                <LoopIcon className="spin" style={{ marginRight: 4 }} /> running
+                <LoopIcon className="spin" style={{ marginRight: 4 }} /> 正在核查
               </>
             ) : needsUser ? (
-              "needs user"
+              "待人工确认"
             ) : dataset ? (
               <>
-                <CheckCircledIcon style={{ marginRight: 4 }} /> context ready
+                <CheckCircledIcon style={{ marginRight: 4 }} /> 数据已接入
               </>
             ) : (
-              "no context"
+              "先接入数据"
             )}
           </Badge>
         </div>
       </section>
 
       {policy.metrics && <GovernanceMetricsStrip metrics={policy.metrics} />}
-
-      <section className="workspace-prompt-rail" aria-label="内置业务 prompt">
-        <span className="rail-label mono" aria-hidden>
-          <LightningBoltIcon /> prompts
-        </span>
-        <div className="rail-chips">
-          {PROMPTS.map((prompt) => (
-            <button
-              key={prompt.key}
-              type="button"
-              data-prompt-chip
-              data-prompt-key={prompt.key}
-              className={`prompt-chip${prompt.hero ? " hero" : ""}`}
-              disabled={busy === "run"}
-              onClick={() => usePrompt(prompt)}
-            >
-              {prompt.label}
-            </button>
-          ))}
-        </div>
-      </section>
 
       <section className="workspace-grid">
         {/* LEFT: conversation pane */}
@@ -702,7 +740,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               <div className="empty-conversation">
                 <ReaderIcon />
                 <strong>先接入一批机构执行价</strong>
-                <span>上传 CSV，或连接右侧演示数据源。接入后点 hero prompt：核完并闭环处置这批机构执行价异常。</span>
+                <span>上传 CSV，或连接右侧演示数据源。接入后点一句常用任务，价序会先核政策、再给出处置对象。</span>
               </div>
             ) : (
               <>
@@ -722,12 +760,33 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             )}
           </div>
 
+          <section className="workspace-prompt-rail" aria-label="内置业务 prompt">
+            <span className="rail-label mono" aria-hidden>
+              <LightningBoltIcon /> 常用任务
+            </span>
+            <div className="rail-chips">
+              {PROMPTS.map((prompt) => (
+                <button
+                  key={prompt.key}
+                  type="button"
+                  data-prompt-chip
+                  data-prompt-key={prompt.key}
+                  className={`prompt-chip${prompt.hero ? " hero" : ""}`}
+                  disabled={busy === "run"}
+                  onClick={() => usePrompt(prompt)}
+                >
+                  {prompt.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
           <div className="composer" data-conversation-composer>
             {dataset && (
               <div className="composer-context">
                 <CheckCircledIcon />
                 <span>
-                  上下文：<strong>{dataset.title}</strong>
+                  已接入：<strong>{dataset.title}</strong>
                   <span className="mono" style={{ marginLeft: 8, color: "var(--ink-3)" }}>
                     {dataset.row_count} 行
                   </span>
@@ -735,9 +794,10 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               </div>
             )}
             <TextArea
+              ref={composerRef}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
-              placeholder="接入执行价表后，说你要完成什么……"
+              placeholder="直接说要核什么，比如：把这批执行价按最新政策复核一遍。"
               size="3"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -747,14 +807,14 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               }}
             />
             <div className="composer-actions">
-              <span className="mono">⌘ + Enter 发送</span>
+              <span className="mono">Ctrl/⌘ + Enter 发送</span>
               <Button
                 size="3"
                 disabled={busy === "run" || !composer.trim()}
                 onClick={() => runInstruction(composer)}
               >
                 {busy === "run" ? <LoopIcon className="spin" /> : <PaperPlaneIcon />}
-                发给价序
+                开始核查
               </Button>
             </div>
           </div>
@@ -820,7 +880,7 @@ function SourcePanel({
   return (
     <section className="workspace-panel source-panel">
       <div className="panel-head tight">
-        <strong>数据上下文</strong>
+        <strong>本次核查数据</strong>
         {dataset ? (
           <Badge color="green" variant="soft" radius="full">
             <CheckCircledIcon style={{ marginRight: 4 }} /> 已接入
@@ -831,8 +891,8 @@ function SourcePanel({
       </div>
       <label className="upload-zone" htmlFor="workspace-upload">
         <FileTextIcon />
-        <span>上传 CSV / XLSX</span>
-        <small>当前演示先支持 CSV，XLSX 已预留入口。</small>
+        <span>上传机构执行价表</span>
+        <small>当前演示支持 CSV；XLSX 入口已预留。</small>
       </label>
       <a
         className="sample-csv-link mono"
@@ -933,8 +993,8 @@ function BusinessObjectsPanel({
   return (
     <section className="workspace-panel generated-panel" data-generated-object>
       <div className="panel-head tight">
-        <strong>业务对象</strong>
-        <span className="mono run-id">{latestRunId ? latestRunId.slice(0, 18) : "等待任务"}</span>
+        <strong>核查结果与待办</strong>
+        <span className="mono run-id">{latestRunId ? `记录 ${latestRunId.slice(0, 10)}` : "等待核查"}</span>
       </div>
 
       {needsUser && (
@@ -1027,7 +1087,7 @@ function DriftQueueTab({ drifts }: { drifts: DriftRow[] }) {
     return (
       <div className="object-empty" data-drift-queue>
         <ReaderIcon />
-        <span>暂无漂移。政策 baseline 与观察价一致；试试「政策事实」tab 的政策变更演示，再重跑核查。</span>
+        <span>暂未发现因政策变化产生的执行价风险。可在「政策依据」里演示一次政策变更后再复核。</span>
       </div>
     );
   }
@@ -1048,9 +1108,9 @@ function DriftQueueTab({ drifts }: { drifts: DriftRow[] }) {
               <span className={`drift-status mono ${d.status}`}>{d.status}</span>
             </div>
             <div className="drift-row-detail mono">
-              baseline {String(baselineVal)} → observed {String(observedVal)}
+              政策价 {String(baselineVal)} → 观察价 {String(observedVal)}
               {typeof observed.over_pct === "number" ? `（超 ${(observed.over_pct * 100).toFixed(1)}%）` : ""}
-              {typeof baseline.source_hash === "string" ? ` · fact#${String(baseline.source_hash).slice(0, 8)}` : ""}
+              {typeof baseline.source_hash === "string" ? ` · 依据#${String(baseline.source_hash).slice(0, 8)}` : ""}
             </div>
           </div>
         );
@@ -1159,8 +1219,8 @@ function RuleCandidatesTab({
   return (
     <div className="object-list" data-rule-candidates>
       <div className="tab-actions">
-        <button className="mini-btn" onClick={onMine} disabled={busy} title="从人审决策日志挖掘候选规则（human_approved + final_action 聚合）">
-          从人审反馈挖掘候选
+        <button className="mini-btn" onClick={onMine} disabled={busy} title="从已确认的人审结论中整理可复用规则，仍需人工激活">
+          从人审结论整理规则
         </button>
       </div>
 
@@ -1178,21 +1238,21 @@ function RuleCandidatesTab({
           return (
             <div key={r.id} className="rule-candidate-item" data-rule-candidate>
               <div className="rc-trigger mono">
-                当 issue={String(trigger.issue_type ?? "?")} · severity={String(trigger.severity ?? "?")}
+                条件：问题={String(trigger.issue_type ?? "?")} · 严重度={String(trigger.severity ?? "?")}
               </div>
               <div className="rc-action mono">
                 自动处置为「{String(action.task_type ?? "?")}」→ {String(action.owner_role ?? "?")} · {String(action.priority ?? "?")}
               </div>
               <div className="rc-meta">
-                置信度 {(r.confidence * 100).toFixed(0)}% · support {r.support_count} ·{" "}
-                <span className="rc-src" title="来源人审决策 id 已写入 source_decision_ids_json，可逐条审计">
+                置信度 {(r.confidence * 100).toFixed(0)}% · 同类样本 {r.support_count} ·{" "}
+                <span className="rc-src" title="来源人审决策可逐条追溯">
                   来源 {srcCount} 条人审决策
                 </span>
                 {r.provenance_run_id ? <span className="mono"> · {r.provenance_run_id.slice(0, 14)}</span> : null}
               </div>
               {dry && (
                 <div className="rc-dryrun mono" data-rule-dryrun>
-                  影响面：命中 {dry.matched} 条历史 case · 护栏挡回 {dry.guardrailBlocked} · 可自动 {dry.autoApplicable}
+                  影响面：命中 {dry.matched} 条历史记录 · 敏感项挡回 {dry.guardrailBlocked} · 可自动 {dry.autoApplicable}
                 </div>
               )}
               <div className="rc-actions">
@@ -1216,7 +1276,7 @@ function RuleCandidatesTab({
       {active.length > 0 && (
         <>
           <div className="policy-section-title">
-            <CheckCircledIcon /> 已激活规则（{active.length}）· 下批自动复用 · 随时可停用
+            <CheckCircledIcon /> 已生效规则（{active.length}）· 下批自动复用 · 随时可停用
           </div>
           {active.slice(0, 4).map((r) => {
             const trigger = safeJson(r.trigger_json);
@@ -1231,7 +1291,7 @@ function RuleCandidatesTab({
                   className="mini-btn reject"
                   disabled={busy}
                   data-rule-suspend
-                  title="可回滚的自动化：停用后下批 run 同类项立即回人审，动作写入决策日志"
+                  title="可回滚：停用后下批同类项立即回到人工确认，动作会留痕"
                   onClick={() => onDecide(r.id, "suspend")}
                 >
                   停用
@@ -1245,7 +1305,7 @@ function RuleCandidatesTab({
       {suspended.length > 0 && (
         <>
           <div className="policy-section-title">
-            <ExclamationTriangleIcon /> 已停用规则（{suspended.length}）· 同类项已回人审
+            <ExclamationTriangleIcon /> 已停用规则（{suspended.length}）· 同类项已回到人工确认
           </div>
           {suspended.slice(0, 4).map((r) => {
             const trigger = safeJson(r.trigger_json);
@@ -1302,21 +1362,21 @@ function PolicyFactsTab({
       <div
         className="policy-source-line"
         data-policy-source
-        title="政策采集链路：抓公告 → artifact 落库（hash 留痕）→ 人审确认 → 生效为政策事实。只抓 L0 公开公告。"
+        title="政策采集链路：抓公告 → 留痕保存 → 人审确认 → 生效为政策依据。只抓公开公告。"
       >
         <span className={`src-dot ${ingestion?.status === "succeeded" ? "ok" : ""}`} aria-hidden />
         <span className="src-name">国家医保局公告 · L0 公开源</span>
         <span className="src-meta mono">
           {ingestion
-            ? `上次同步 ${ingestion.finished_at ? ingestion.finished_at.slice(5, 16).replace("T", " ") : "—"} · 解析 ${ingestion.fetched_count} · 新增 ${ingestion.changed_count} · ${ingestion.status}`
-            : "尚未同步 · 点「政策同步」真实抓取"}
+            ? `上次同步 ${ingestion.finished_at ? ingestion.finished_at.slice(5, 16).replace("T", " ") : "—"} · 解析 ${ingestion.fetched_count} · 新增 ${ingestion.changed_count}`
+            : "尚未同步 · 点「同步公开政策」抓取"}
         </span>
       </div>
       <div className="tab-actions">
-        <button className="mini-btn" data-policy-sync onClick={onSync} disabled={busy} title="抓取国家医保局公开公告 → policy_artifact 落库（hash 留痕，人审确认后才生效为事实）">
-          政策同步（L0 公开源）
+        <button className="mini-btn" data-policy-sync onClick={onSync} disabled={busy} title="抓取国家医保局公开公告，人工确认后才作为核价依据">
+          同步公开政策
         </button>
-        <button className="mini-btn demo" data-demo-policy-update onClick={onDemoUpdate} disabled={busy} title="演示：HC-LNS-902 集采中选价 640→560。真实链路走公告 artifact 人审确认。">
+        <button className="mini-btn demo" data-demo-policy-update onClick={onDemoUpdate} disabled={busy} title="演示：HC-LNS-902 集采中选价 640→560。真实链路需公告人审确认。">
           政策变更演示 640→560
         </button>
       </div>
@@ -1332,17 +1392,17 @@ function PolicyFactsTab({
             </div>
             <div className="fact-row-prices mono">
               中选 {f.collective_price ?? "—"} · 最高 {f.ceiling_price ?? "—"} · 参考 {f.reference_price ?? "—"}
-              {f.source_hash ? <span className="fact-hash" title={`版本指纹 source_hash=${f.source_hash}`}> · v#{f.source_hash.slice(0, 8)}</span> : null}
+              {f.source_hash ? <span className="fact-hash" title={`版本指纹 ${f.source_hash}`}> · v#{f.source_hash.slice(0, 8)}</span> : null}
             </div>
           </div>
         ))
       )}
 
       <div className="policy-section-title" style={{ marginTop: 8 }}>
-        <FileTextIcon /> 公告 artifact（待人审 {fetched.length}）
+        <FileTextIcon /> 待确认公告（{fetched.length}）
       </div>
       {fetched.length === 0 ? (
-        <div className="policy-empty">暂无待审公告。点"政策同步"抓取国家医保局公开公告。</div>
+        <div className="policy-empty">暂无待确认公告。点「同步公开政策」抓取国家医保局公开公告。</div>
       ) : (
         fetched.slice(0, 4).map((a) => (
           <div key={a.id} className="artifact-row" data-artifact-row>
@@ -1356,7 +1416,7 @@ function PolicyFactsTab({
                   className="mono"
                   value={confirmCode}
                   onChange={(e) => setConfirmCode(e.target.value)}
-                  placeholder="item_code"
+                  placeholder="项目编码"
                   aria-label="医保项目编码"
                 />
                 <input
@@ -1376,13 +1436,13 @@ function PolicyFactsTab({
                     setConfirmingId(null);
                   }}
                 >
-                  确认生效为事实
+                  确认为核价依据
                 </button>
               </div>
             ) : (
               <div className="rc-actions">
                 <button className="mini-btn" data-artifact-open-confirm disabled={busy} onClick={() => setConfirmingId(a.id)}>
-                  人审确认 → 政策事实
+                  人审确认 → 核价依据
                 </button>
               </div>
             )}
@@ -1418,7 +1478,7 @@ function RepairEvidenceTab({
           </div>
         ))}
       </div>
-      <div className="policy-section-title">修复 patch（{repairs.length}）</div>
+      <div className="policy-section-title">数据修正（{repairs.length}）</div>
       <div data-repair-patch>
         {repairs.slice(0, 6).map((r) => (
           <div key={r.id} className="object-row">
@@ -1518,7 +1578,7 @@ function ObjectEmpty() {
   return (
     <div className="object-empty">
       <ReaderIcon />
-      <span>这一类还没有对象，等 agent 跑完会自动切到第一个有内容的 tab。</span>
+      <span>这一类暂时没有结果。核查完成后，系统会自动切到最需要处理的内容。</span>
     </div>
   );
 }
@@ -1526,13 +1586,13 @@ function ObjectEmpty() {
 // V2 阶段定义：固定顺序，像 coding agent 一样逐步展示。
 // 标注哪些阶段解决"政策对齐/规则负担/漂移"痛点，让评委一眼看到新能力。
 const AGENT_STAGES: { phase: string; label: string; icon: "read" | "plan" | "tools" | "write" | "verify" | "drift" | "learn"; painPoint?: string }[] = [
-  { phase: "observe", label: "读取数据上下文", icon: "read" },
-  { phase: "plan", label: "生成处理计划", icon: "plan" },
-  { phase: "tools", label: "执行价格治理工具", icon: "tools" },
-  { phase: "mutate", label: "写入可审批对象", icon: "write" },
-  { phase: "verify", label: "政策漂移检测（对照 policy_fact）", icon: "drift", painPoint: "政策跟不住" },
-  { phase: "learn", label: "规则引擎（人审反馈沉淀）", icon: "learn", painPoint: "规则负担重" },
-  { phase: "verify-replay", label: "结果可回放", icon: "verify" },
+  { phase: "observe", label: "读取本批数据", icon: "read" },
+  { phase: "plan", label: "判断先核哪些问题", icon: "plan" },
+  { phase: "tools", label: "核字段、单位和同品归并", icon: "tools" },
+  { phase: "mutate", label: "生成待办和处置口径", icon: "write" },
+  { phase: "verify", label: "对照最新政策找漂移", icon: "drift", painPoint: "政策跟不住" },
+  { phase: "learn", label: "整理可复用的人审规则", icon: "learn", painPoint: "规则负担重" },
+  { phase: "verify-replay", label: "保存留痕，便于复查", icon: "verify" },
 ];
 
 function StageIcon({ name, running }: { name: string; running?: boolean }) {
@@ -1638,7 +1698,7 @@ function AgentStepsMessage({ events, running }: { events: RunEvent[]; running: b
   return (
     <article className="message-bubble assistant agent-steps-message" data-agent-steps>
       <div className="message-role">
-        <LightningBoltIcon /> 价序 · agent 执行步骤
+        <LightningBoltIcon /> 价序正在核查
       </div>
       <div className="message-body">
         <div className="agent-steps-list">
@@ -1661,12 +1721,12 @@ function AgentStepsMessage({ events, running }: { events: RunEvent[]; running: b
                     {stage.painPoint && (
                       <span className="agent-step-pain" title={`解决痛点：${stage.painPoint}`}>{stage.painPoint}</span>
                     )}
-                    {isDone && <span className="agent-step-state done">done</span>}
-                    {isActive && <span className="agent-step-state running">running</span>}
-                    {isPending && <span className="agent-step-state">queued</span>}
+                    {isDone && <span className="agent-step-state done">已完成</span>}
+                    {isActive && <span className="agent-step-state running">进行中</span>}
+                    {isPending && <span className="agent-step-state">等待</span>}
                   </div>
                   {synthetic && isActive && stage.phase === "plan" && (
-                    <div className="agent-step-detail">正在调用真实模型 provider 生成处理计划…</div>
+                    <div className="agent-step-detail">正在结合本批数据生成处理计划…</div>
                   )}
                   {event && (
                     <div className="agent-step-detail">{event.detail}

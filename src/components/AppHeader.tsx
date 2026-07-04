@@ -21,7 +21,7 @@ export function AppHeader({ active }: { active?: string }) {
           <img src="/brand/logomark.svg" alt="" width={26} height={26} />
           <Flex align="center" gap="2" className="app-brand-text">
             <span className="app-brand-name">价序</span>
-            <span className="app-brand-tag mono">agent · v0.1</span>
+            <span className="app-brand-tag mono">价格复核助手</span>
           </Flex>
         </Link>
 
