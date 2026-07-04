@@ -67,6 +67,7 @@ const AUTO_SWITCH_ORDER: ObjectTabKey[] = ["drift", "task", "draft", "repair"];
 
 // 人审批准时可选的实际处置动作（final_action，规则挖掘的聚合键之一）
 const FINAL_ACTIONS = ["机构核实", "集采催办", "转数据治理", "排除（误报）"] as const;
+type PetSyncState = "running" | "needs" | "failed" | "degraded" | "ready" | "idle";
 
 function threadStateLabel(state: string) {
   if (state === "needs_user") return "待人工确认";
@@ -394,7 +395,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   function usePrompt(prompt: (typeof PROMPTS)[number]) {
     setComposer(prompt.text);
-    void runInstruction(prompt.text, prompt.key);
+    requestAnimationFrame(() => composerRef.current?.focus());
   }
 
   /*
@@ -735,6 +736,13 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       <section className="workspace-grid">
         {/* LEFT: conversation pane */}
         <div className="conversation-pane">
+          <PetSyncStrip
+            isRunning={isRunning}
+            needsUser={needsUser}
+            lastRunStatus={lastRunStatus}
+            objectCounts={objectCounts}
+            activeTab={activeTab}
+          />
           <div className="message-list" ref={messageListRef} aria-live="polite">
             {messages.length === 0 ? (
               <div className="empty-conversation">
@@ -772,6 +780,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
                   data-prompt-chip
                   data-prompt-key={prompt.key}
                   className={`prompt-chip${prompt.hero ? " hero" : ""}`}
+                  title="填入输入框，确认后再开始核查"
                   disabled={busy === "run"}
                   onClick={() => usePrompt(prompt)}
                 >
@@ -1579,6 +1588,71 @@ function ObjectEmpty() {
     <div className="object-empty">
       <ReaderIcon />
       <span>这一类暂时没有结果。核查完成后，系统会自动切到最需要处理的内容。</span>
+    </div>
+  );
+}
+
+function PetSyncStrip({
+  isRunning,
+  needsUser,
+  lastRunStatus,
+  objectCounts,
+  activeTab,
+}: {
+  isRunning: boolean;
+  needsUser: boolean;
+  lastRunStatus: "success" | "degraded" | "failed" | null;
+  objectCounts: Record<ObjectTabKey, number>;
+  activeTab: ObjectTabKey;
+}) {
+  const totalObjects =
+    objectCounts.drift + objectCounts.task + objectCounts.draft + objectCounts.rule + objectCounts.repair;
+  const activeLabel = OBJECT_TABS.find((tab) => tab.key === activeTab)?.label ?? "结果";
+  const state: PetSyncState = isRunning
+    ? "running"
+    : needsUser
+      ? "needs"
+      : lastRunStatus === "failed"
+        ? "failed"
+        : lastRunStatus === "degraded"
+          ? "degraded"
+          : totalObjects > 0
+            ? "ready"
+            : "idle";
+  const copy: Record<PetSyncState, { title: string; detail: string }> = {
+    running: {
+      title: "小序正在跟着核查",
+      detail: "对话区显示核查步骤；点右下角小序，会把对话滚到最新进度。",
+    },
+    needs: {
+      title: "小序在等你确认",
+      detail: `当前重点是「${activeLabel}」。右侧有待确认项，点小序会带你看处理对象。`,
+    },
+    failed: {
+      title: "小序发现核查异常",
+      detail: "可确定的结果会保留，不能确定的不会伪造成成功结论。",
+    },
+    degraded: {
+      title: "小序保留了可确定结果",
+      detail: "模型服务异常时，字段、归并、规则判断等确定性结果仍可查看。",
+    },
+    ready: {
+      title: "小序已同步结果",
+      detail: `已形成 ${totalObjects} 个核查对象，右侧会停在最需要处理的栏目。`,
+    },
+    idle: {
+      title: "小序会跟随本次核查",
+      detail: "开始核查后，它会根据运行、待确认和结果状态提示你下一步。",
+    },
+  };
+  return (
+    <div className={`pet-sync-strip ${state}`} data-pet-sync-strip>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/xiaoxu.png" alt="" aria-hidden />
+      <div>
+        <strong>{copy[state].title}</strong>
+        <span>{copy[state].detail}</span>
+      </div>
     </div>
   );
 }

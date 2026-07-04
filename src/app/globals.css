@@ -1157,10 +1157,10 @@ a {
 /* Prompt rail (inside conversation pane, above composer) */
 .workspace-prompt-rail {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   min-width: 0;
-  padding: 9px 14px;
+  padding: 11px 14px;
   border-top: 1px solid var(--gate-border);
   background: color-mix(in srgb, var(--surface-subtle) 72%, white);
 }
@@ -1184,11 +1184,10 @@ a {
 
 .workspace-prompt-rail .rail-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
   flex: 1;
   min-width: 0;
-  padding-bottom: 2px;
 }
 
 .prompt-chip {
@@ -1196,9 +1195,9 @@ a {
   align-items: center;
   gap: 7px;
   min-height: 34px;
-  max-width: 260px;
-  flex: 0 0 auto;
-  padding: 0 13px;
+  max-width: min(100%, 330px);
+  flex: 0 1 auto;
+  padding: 7px 13px;
   border: 1px solid var(--gate-border);
   border-radius: 999px;
   background: var(--bg-elevated);
@@ -1207,6 +1206,7 @@ a {
   font-weight: 500;
   line-height: 1.25;
   text-align: left;
+  white-space: normal;
   cursor: pointer;
   transition: border-color 140ms var(--ease-soft), background 140ms var(--ease-soft),
     color 140ms var(--ease-soft);
@@ -1250,9 +1250,64 @@ a {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr auto auto auto;
+  grid-template-rows: auto 1fr auto auto auto;
   overflow: hidden;
   position: relative;
+}
+
+.pet-sync-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--gate-border);
+  background: color-mix(in srgb, var(--surface-subtle) 76%, white);
+  z-index: 1;
+}
+
+.pet-sync-strip img {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.pet-sync-strip div {
+  min-width: 0;
+}
+
+.pet-sync-strip strong {
+  display: block;
+  color: var(--gate-ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.pet-sync-strip span {
+  display: block;
+  margin-top: 2px;
+  color: var(--gate-ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pet-sync-strip.running {
+  background: color-mix(in srgb, var(--gate-accent-soft) 58%, white);
+}
+
+.pet-sync-strip.needs {
+  background: color-mix(in srgb, var(--gate-amber-soft) 64%, white);
+}
+
+.pet-sync-strip.ready {
+  background: color-mix(in srgb, var(--gate-green-soft) 72%, white);
+}
+
+.pet-sync-strip.failed,
+.pet-sync-strip.degraded {
+  background: color-mix(in srgb, var(--gate-red-soft) 58%, white);
 }
 
 .agent-mark-img {
@@ -1273,7 +1328,7 @@ a {
 }
 
 .message-list {
-  padding: 22px 22px 14px;
+  padding: 16px 22px 14px;
   min-height: 0;
   overflow-y: scroll;
   overflow-x: hidden;
@@ -1985,7 +2040,8 @@ a {
     gap: 8px;
   }
   .workspace-prompt-rail .rail-chips {
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: 1fr;
   }
   .composer-actions {
     align-items: stretch;
@@ -2007,7 +2063,9 @@ a {
     order: 2;
   }
   .prompt-chip {
-    max-width: 220px;
+    justify-content: flex-start;
+    max-width: none;
+    width: 100%;
   }
   .object-tabs {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2826,7 +2884,7 @@ a {
 .landing-hero {
   max-width: 1320px;
   margin: 0 auto;
-  padding: 56px 24px 32px;
+  padding: 44px 24px 30px;
 }
 .landing-hero-grid {
   display: grid;
@@ -2834,13 +2892,43 @@ a {
   gap: 56px;
   align-items: start;
 }
+.landing-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.landing-brand-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  border: 1px solid var(--gate-border);
+  background: var(--bg-elevated);
+  object-fit: contain;
+  box-shadow: 0 2px 8px rgba(15, 22, 35, 0.06);
+}
+.landing-brand-lockup strong {
+  display: block;
+  color: var(--gate-ink);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.landing-brand-lockup span {
+  display: block;
+  margin-top: 5px;
+  color: var(--gate-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
 .landing-hero-text h1 {
-  font-size: clamp(34px, 4.2vw, 56px);
-  line-height: 1.08;
+  font-size: clamp(34px, 3.45vw, 48px);
+  line-height: 1.12;
   letter-spacing: -0.025em;
   font-weight: 700;
   color: var(--gate-ink);
   margin: 18px 0 0;
+  max-width: 820px;
 }
 .landing-mark {
   color: var(--gate-accent);
@@ -2848,17 +2936,37 @@ a {
   letter-spacing: -0.02em;
 }
 .landing-lead {
-  margin: 22px 0 0;
-  font-size: 16.5px;
-  line-height: 1.62;
+  margin: 18px 0 0;
+  font-size: 16px;
+  line-height: 1.58;
   color: var(--gate-ink-soft);
-  max-width: 560px;
+  max-width: 620px;
+}
+.landing-proof-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  max-width: 700px;
+}
+.landing-proof-points span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--gate-border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--gate-ink);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 22, 35, 0.03);
 }
 .landing-cta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 .landing-cta {
   display: inline-flex;
@@ -3075,14 +3183,14 @@ a {
 
 /* Prompt rail (borrowed parameter-sidebar energy) ----------------------- */
 .prompt-rail-landing {
-  margin-top: 40px;
-  padding: 22px;
+  margin-top: 28px;
+  padding: 16px;
   background: var(--bg-elevated);
   border: 1px solid var(--gate-border);
-  border-radius: 14px;
+  border-radius: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 .prompt-rail-label {

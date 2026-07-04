@@ -173,19 +173,27 @@ export function LandingClient({ initial, providerStatus }: LandingClientProps) {
       <section className="landing-hero" data-landing-hero>
         <div className="landing-hero-grid">
           <div className="landing-hero-text">
-            <div className="agent-eyebrow">
-              <span className="mono">价序 · JIA XU</span>
+            <div className="landing-brand-lockup" aria-label="价序">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="landing-brand-logo" src="/brand/logomark.svg" alt="" aria-hidden />
+              <div>
+                <strong>价序</strong>
+                <span>医保医药价格复核工作台</span>
+              </div>
             </div>
             <h1>
-              政策一变，昨天核过的价<span className="landing-mark">今天就可能不合规</span>。
+              政策变了，存量执行价要<span className="landing-mark">重新复核</span>。
               <br />
-              价序盯政策、核价格、闭环处置。
+              价序把风险项推到下一步。
             </h1>
             <p className="landing-lead">
-              它对照最新政策事实复核每一批机构执行价：检出漂移生成复核任务，
-              命中已激活规则的自动处置，其余转人审；人审结论沉淀为规则候选，
-              越用越省人。每一步都有记录，评委现场能复跑，业务岗事后能追溯。
+              给医保医药价格治理岗用的复核工作台。接入一批机构执行价，价序会对照最新政策找漂移，生成复核任务、处置口径和留痕记录。
             </p>
+            <div className="landing-proof-points" aria-label="价序核心能力">
+              <span>政策变更后找出风险价</span>
+              <span>拿不准的转人工确认</span>
+              <span>确认过的同类项下批少审</span>
+            </div>
             <div className="landing-cta-row">
               <Link href="/workspace" className="landing-cta primary" data-cta-primary>
                 打开工作台 <ArrowRightIcon />
