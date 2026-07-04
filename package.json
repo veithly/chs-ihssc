@@ -15,6 +15,7 @@
     "verify:v2": "node scripts/verify-v2.mjs",
     "shots": "node scripts/screenshots.mjs",
     "deck:export": "node scripts/export_deck.mjs",
+    "package:win": "node scripts/package_offline_win.mjs",
     "video:demo": "node scripts/record_demo.mjs",
     "build:opennext": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare preview",

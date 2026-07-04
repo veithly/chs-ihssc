@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { confirmPolicyArtifact, rejectPolicyArtifact } from "@/lib/policy/fetcher";
+import {
+  confirmPolicyArtifact,
+  confirmPolicyArtifactFacts,
+  rejectPolicyArtifact,
+  type ArtifactFactInput,
+} from "@/lib/policy/fetcher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // POST /api/workspace/policy-artifacts/[id]/confirm
 // body: { action?: "confirm"|"reject", item_code, item_name?, reference_price?, ceiling_price?, collective_price?, reviewer }
+// 批量：{ facts: [{ item_code, ... }], reviewer } —— 内网上传 CSV 解析出的建议一次确认生效。
 // 人审确认公告 artifact → 结构化字段生效为 policy_fact（source_hash 指向 artifact）→ 下次 run 检出漂移。
 // 政策事实未经人审确认不进入自动判定。
 export async function POST(
@@ -21,6 +27,7 @@ export async function POST(
     ceiling_price?: number;
     collective_price?: number;
     reviewer?: string;
+    facts?: ArtifactFactInput[];
   };
   try {
     body = (await req.json()) as typeof body;
@@ -32,6 +39,11 @@ export async function POST(
 
   if (body.action === "reject") {
     const result = rejectPolicyArtifact(id, reviewer);
+    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  if (Array.isArray(body.facts) && body.facts.length > 0) {
+    const result = confirmPolicyArtifactFacts({ artifactId: id, reviewer, facts: body.facts });
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   }
 

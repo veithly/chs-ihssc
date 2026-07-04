@@ -3982,6 +3982,147 @@ a {
   border-radius: 5px;
   width: 96px;
 }
+.artifact-source-chip {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  margin-right: 5px;
+  border-radius: 6px;
+  background: var(--gate-violet-soft, #efeaff);
+  color: var(--gate-violet, #5b3fd6);
+  vertical-align: 1px;
+}
+.artifact-suggested {
+  margin: 4px 0 5px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--gate-green-soft, #e6f4ec);
+  border: 1px solid var(--gate-green-border, #b6d8c2);
+}
+.artifact-suggested-head {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gate-green, #137a4b);
+}
+.artifact-suggested-row {
+  font-size: 9.5px;
+  color: var(--gray-10, #3f3f46);
+  margin-top: 2px;
+}
+
+/* ===== 会话流提案卡（agent 修复/处置提案，可编辑可采纳） ===== */
+.proposal-message {
+  border: 1px solid var(--gate-accent-soft, #eef2ff);
+  border-left: 3px solid var(--gate-accent, #2841d6);
+  background: linear-gradient(180deg, var(--gate-accent-tint, #f4f6ff), #ffffff 46%);
+}
+.proposal-message .message-role { color: var(--gate-accent, #2841d6); }
+.proposal-hint {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-3, #8b93a1);
+}
+.proposal-section { margin-top: 8px; }
+.proposal-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.proposal-section-head strong {
+  font-size: 11.5px;
+  color: var(--gate-ink, #0f1623);
+}
+.proposal-row {
+  border: 1px solid var(--gate-border, #e3e7ef);
+  border-radius: 7px;
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  background: #ffffff;
+}
+.proposal-row.decided { background: var(--surface-subtle, #fbfcfe); opacity: 0.88; }
+.proposal-row-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.proposal-loc {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--gate-ink-soft, #5b6573);
+  background: var(--surface-sunken, #f1f3f8);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.proposal-before {
+  font-size: 10.5px;
+  color: var(--gate-red, #d83a3a);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.proposal-arrow { width: 11px; height: 11px; color: var(--ink-3, #8b93a1); flex-shrink: 0; }
+.proposal-after { font-size: 10.5px; font-weight: 700; color: var(--gate-green, #137a4b); }
+.proposal-input {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--gate-ink, #0f1623);
+  padding: 3px 7px;
+  border: 1px solid var(--gate-accent, #2841d6);
+  border-radius: 5px;
+  background: #ffffff;
+  min-width: 130px;
+  flex: 1 1 130px;
+  max-width: 240px;
+}
+.proposal-input:focus { outline: 2px solid var(--gate-accent-soft, #eef2ff); }
+.proposal-task-title { font-size: 11px; color: var(--gate-ink, #0f1623); }
+.proposal-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+.proposal-reason { font-size: 10px; color: var(--ink-3, #8b93a1); }
+.proposal-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.proposal-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gate-green, #137a4b);
+}
+.proposal-state svg { width: 11px; height: 11px; }
+.proposal-state.dismissed { color: var(--ink-3, #8b93a1); font-weight: 500; }
+.proposal-more { font-size: 10px; color: var(--ink-3, #8b93a1); margin: 2px 0 4px; }
+.proposal-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--gate-border, #e3e7ef);
+  font-size: 9.5px;
+  color: var(--ink-3, #8b93a1);
+}
+
+/* 数据源面板：批次详情链接 */
+.dataset-release-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gate-accent, #2841d6);
+  white-space: nowrap;
+}
+.dataset-release-link:hover { text-decoration: underline; }
+.dataset-release-link svg { width: 10px; height: 10px; }
 
 /* 审计日志条：面板底部常驻 */
 .audit-strip {

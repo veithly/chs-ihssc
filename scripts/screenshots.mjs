@@ -32,6 +32,16 @@ async function shot(page, name) {
   console.log("  shot", name);
 }
 
+// 文档截图统一隐藏桌宠：fullPage 拼接时 fixed 定位的小序会悬在页面中部，
+// 视频里已有它的出镜；产品截图保持信息密度。
+function hidePet(ctx) {
+  return ctx.addInitScript(() => {
+    try {
+      localStorage.setItem("chs.desktopPet.enabled", "false");
+    } catch {}
+  });
+}
+
 async function reset() {
   await fetch(`${BASE}/api/admin/reseed`, { method: "POST" });
 }
@@ -61,6 +71,7 @@ const main = async () => {
     deviceScaleFactor: 2,
     locale: "zh-CN",
   });
+  await hidePet(ctx);
   const page = await ctx.newPage();
 
   await page.goto(`${BASE}/workspace`, { waitUntil: "networkidle" });
@@ -111,6 +122,7 @@ const main = async () => {
 
   await reset();
   const mctx = await browser.newContext({ ...devices["iPhone 13"], locale: "zh-CN" });
+  await hidePet(mctx);
   const mp = await mctx.newPage();
   await mp.goto(`${BASE}/workspace`, { waitUntil: "networkidle" });
   await shot(mp, "08-mobile-workspace.png");
@@ -127,6 +139,7 @@ const main = async () => {
     deviceScaleFactor: 2,
     locale: "zh-CN",
   });
+  await hidePet(vctx);
   const vp = await vctx.newPage();
   // 连 demo source + 跑一次（产生 disposition 供规则引擎作用）
   await vp.goto(`${BASE}/workspace`, { waitUntil: "networkidle" });
@@ -179,6 +192,7 @@ const main = async () => {
     deviceScaleFactor: 2,
     locale: "zh-CN",
   });
+  await hidePet(lctx);
   const lp = await lctx.newPage();
   await lp.goto(`${BASE}/`, { waitUntil: "networkidle" });
   // Click the first landing prompt to deep-link into /workspace?prompt=...
@@ -194,6 +208,30 @@ const main = async () => {
   await lp.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await shot(lp, "10-landing-hero.png");
   await lctx.close();
+
+  // 批次闸门结果页：真实 release-gate run 后截图（差比价折算超限 + 64号红黄分档徽标）。
+  await reset();
+  console.log("[screenshots] running release-gate scan (live provider, ~40s)...");
+  const gate = await fetch(`${BASE}/api/agent/release-gate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ releaseId: "REL-2026-0623-07" }),
+  }).then((r) => r.json()).catch(() => null);
+  if (!gate?.ok) {
+    throw new Error(`release-gate scan failed (${gate?.error_category ?? "unknown"}); 14-release-result-tiers.png needs a successful run`);
+  }
+  const rctx = await browser.newContext({
+    viewport: { width: 1440, height: 920 },
+    deviceScaleFactor: 2,
+    locale: "zh-CN",
+  });
+  await hidePet(rctx);
+  const rp = await rctx.newPage();
+  await rp.goto(`${BASE}/release/REL-2026-0623-07/result`, { waitUntil: "networkidle" });
+  await rp.waitForSelector(".dist-grid", { timeout: 20000 });
+  await rp.waitForTimeout(800);
+  await shot(rp, "14-release-result-tiers.png");
+  await rctx.close();
 
   await browser.close();
   console.log("[screenshots] done ->", OUT);

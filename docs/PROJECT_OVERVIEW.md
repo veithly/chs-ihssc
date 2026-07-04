@@ -369,7 +369,7 @@ npm run start
 # 另开终端跑验证
 DEMO_URL=http://127.0.0.1:3000 npm run smoke:agent   # 期望 15/15 通过
 DEMO_URL=http://127.0.0.1:3000 npm run verify:v2     # 期望 17/17 通过（V2.2 政策同步→漂移→人审→挖掘→激活→自动处置全链路）
-DEMO_URL=http://127.0.0.1:3000 npm run shots         # 生成截图 01-08、10-13
+DEMO_URL=http://127.0.0.1:3000 npm run shots         # 生成截图 01-08、10-14（14 需 live provider 跑批次闸门）
 ```
 
 ---
@@ -384,7 +384,7 @@ DEMO_URL=http://127.0.0.1:3000 npm run shots         # 生成截图 01-08、10-1
 ## 7. 材料索引
 
 - Pitch Deck：`docs/deck/jiaxu-deck.pdf`、`docs/deck/jiaxu-deck.pptx`、`docs/deck/index.html`
-- Pitch+Demo 视频：`docs/video/pitch-demo-2.mp4`（1920×1080 / 30fps / 255.77s ≈ 4:16）
+- Pitch+Demo 视频：`docs/video/pitch-demo-2.mp4`（1920×1080 / 30fps / 167s ≈ 2:47，pitch deck + 真实浏览器演示，按评审四维度组织：需求洞察→完成度闭环→技术实现→可落地性）
 - 视频 QA：`docs/video/pitch-demo/qa/summary.json`
-- 截图：`docs/screenshots/`（01–13，其中 12/13 为 V2.2 政策引擎与漂移队列）
+- 截图：`docs/screenshots/`（01–14，其中 12/13 为政策引擎与漂移队列、14 为批次闸门红黄分档，全部为业务化文案新版 UI）
 - 验证证据：`docs/evidence/`、`.hunter/v2-verification.json`

@@ -202,53 +202,18 @@ export function confirmPolicyArtifact(input: ConfirmArtifactInput): {
   }
 
   const now = workspaceNow();
-  const existing = db
-    .prepare("SELECT id, item_name, reference_price, ceiling_price, collective_price FROM policy_fact WHERE item_code = :code ORDER BY created_at DESC LIMIT 1")
-    .get({ code: itemCode }) as
-    | { id: string; item_name: string; reference_price: number | null; ceiling_price: number | null; collective_price: number | null }
-    | null;
-
-  let factId: string;
-  if (existing) {
-    // 更新既有事实：新 source_url/source_hash 指向 artifact（版本演进）
-    factId = existing.id;
-    db.prepare(
-      `UPDATE policy_fact
-       SET reference_price = COALESCE(:ref, reference_price),
-           ceiling_price = COALESCE(:ceil, ceiling_price),
-           collective_price = COALESCE(:coll, collective_price),
-           source_url = :url,
-           source_hash = :hash
-       WHERE id = :id`,
-    ).run({
-      ref: input.referencePrice ?? null,
-      ceil: input.ceilingPrice ?? null,
-      coll: input.collectivePrice ?? null,
-      url: artifact.url,
-      hash: artifact.content_hash,
-      id: factId,
-    });
-  } else {
-    factId = `PF-${itemCode}-${Date.now()}`;
-    const factBody = JSON.stringify({ itemCode, artifact: artifact.content_hash });
-    db.prepare(
-      `INSERT INTO policy_fact
-       (id, item_code, item_name, category, unit, reference_price, ceiling_price, collective_price, landed_regions_json, effective_start, effective_end, jurisdiction, source_url, source_hash, confidentiality_level, fact_hash, created_at)
-       VALUES (:id, :item_code, :item_name, NULL, NULL, :ref, :ceil, :coll, '[]', :effective_start, NULL, 'national', :url, :hash, 'public', :fact_hash, :created_at)`,
-    ).run({
-      id: factId,
+  const factId = upsertFactForArtifact(
+    db,
+    { url: artifact.url, content_hash: artifact.content_hash, title: artifact.title },
+    {
       item_code: itemCode,
-      item_name: input.itemName ?? artifact.title,
-      ref: input.referencePrice ?? null,
-      ceil: input.ceilingPrice ?? null,
-      coll: input.collectivePrice ?? null,
-      effective_start: now.slice(0, 10),
-      url: artifact.url,
-      hash: artifact.content_hash,
-      fact_hash: createHash("sha256").update(factBody).digest("hex").slice(0, 16),
-      created_at: now,
-    });
-  }
+      item_name: input.itemName,
+      reference_price: input.referencePrice,
+      ceiling_price: input.ceilingPrice,
+      collective_price: input.collectivePrice,
+    },
+    now,
+  );
 
   db.prepare(
     "UPDATE policy_artifact SET status = 'confirmed', reviewer = :reviewer, reviewed_at = :now WHERE id = :id",
@@ -260,6 +225,114 @@ export function confirmPolicyArtifact(input: ConfirmArtifactInput): {
     factId,
     driftExpected: true,
   };
+}
+
+export interface ArtifactFactInput {
+  item_code: string;
+  item_name?: string;
+  reference_price?: number;
+  ceiling_price?: number;
+  collective_price?: number;
+}
+
+// 批量确认（内网上传 CSV 解析出的结构化事实）：一次人审确认 N 条 policy_fact 生效。
+// 与单条 confirm 同一 upsert 逻辑、同一 source_hash 追溯口径。
+export function confirmPolicyArtifactFacts(input: {
+  artifactId: string;
+  reviewer: string;
+  facts: ArtifactFactInput[];
+}): { ok: boolean; message: string; confirmedCount?: number; driftExpected?: boolean } {
+  const db = getDb();
+  const artifact = db
+    .prepare("SELECT * FROM policy_artifact WHERE id = :id LIMIT 1")
+    .get({ id: input.artifactId }) as
+    | { id: string; url: string; title: string; content_hash: string; status: string }
+    | null;
+  if (!artifact) return { ok: false, message: "未找到该 artifact。" };
+  if (artifact.status !== "fetched") {
+    return { ok: false, message: `artifact 状态为 ${artifact.status}，不能重复确认。` };
+  }
+  const facts = input.facts.filter((f) => f.item_code?.trim());
+  if (facts.length === 0) {
+    return { ok: false, message: "没有可确认的结构化事实（缺少医保项目编码）。" };
+  }
+
+  const now = workspaceNow();
+  for (const fact of facts) {
+    upsertFactForArtifact(
+      db,
+      { url: artifact.url, content_hash: artifact.content_hash, title: artifact.title },
+      { ...fact, item_code: fact.item_code.trim() },
+      now,
+    );
+  }
+
+  db.prepare(
+    "UPDATE policy_artifact SET status = 'confirmed', reviewer = :reviewer, reviewed_at = :now WHERE id = :id",
+  ).run({ reviewer: input.reviewer, now, id: artifact.id });
+
+  return {
+    ok: true,
+    message: `已人审确认，${facts.length} 条政策事实生效（source_hash=${artifact.content_hash}）。下次 run 将按新 baseline 检出漂移。`,
+    confirmedCount: facts.length,
+    driftExpected: true,
+  };
+}
+
+// 写/更新单条 policy_fact（source_url/source_hash 指向 artifact，版本演进可追溯）。
+function upsertFactForArtifact(
+  db: ReturnType<typeof getDb>,
+  artifact: { url: string; content_hash: string; title: string },
+  fact: ArtifactFactInput,
+  now: string,
+): string {
+  const itemCode = fact.item_code;
+  const existing = db
+    .prepare(
+      "SELECT id FROM policy_fact WHERE item_code = :code ORDER BY created_at DESC LIMIT 1",
+    )
+    .get({ code: itemCode }) as { id: string } | null;
+
+  if (existing) {
+    db.prepare(
+      `UPDATE policy_fact
+       SET reference_price = COALESCE(:ref, reference_price),
+           ceiling_price = COALESCE(:ceil, ceiling_price),
+           collective_price = COALESCE(:coll, collective_price),
+           source_url = :url,
+           source_hash = :hash
+       WHERE id = :id`,
+    ).run({
+      ref: fact.reference_price ?? null,
+      ceil: fact.ceiling_price ?? null,
+      coll: fact.collective_price ?? null,
+      url: artifact.url,
+      hash: artifact.content_hash,
+      id: existing.id,
+    });
+    return existing.id;
+  }
+
+  const factId = `PF-${itemCode}-${Date.now()}`;
+  const factBody = JSON.stringify({ itemCode, artifact: artifact.content_hash });
+  db.prepare(
+    `INSERT INTO policy_fact
+     (id, item_code, item_name, category, unit, reference_price, ceiling_price, collective_price, landed_regions_json, effective_start, effective_end, jurisdiction, source_url, source_hash, confidentiality_level, fact_hash, created_at)
+     VALUES (:id, :item_code, :item_name, NULL, NULL, :ref, :ceil, :coll, '[]', :effective_start, NULL, 'national', :url, :hash, 'public', :fact_hash, :created_at)`,
+  ).run({
+    id: factId,
+    item_code: itemCode,
+    item_name: fact.item_name ?? artifact.title,
+    ref: fact.reference_price ?? null,
+    ceil: fact.ceiling_price ?? null,
+    coll: fact.collective_price ?? null,
+    effective_start: now.slice(0, 10),
+    url: artifact.url,
+    hash: artifact.content_hash,
+    fact_hash: createHash("sha256").update(factBody).digest("hex").slice(0, 16),
+    created_at: now,
+  });
+  return factId;
 }
 
 export function rejectPolicyArtifact(artifactId: string, reviewer: string): { ok: boolean; message: string } {

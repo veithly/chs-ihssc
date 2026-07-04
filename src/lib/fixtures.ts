@@ -315,6 +315,7 @@ export const RELEASE_RULES = [
   "R5 相对参考价涨幅超过 15% 但未触发硬阈值时进入需核验。",
   "R6 挂网/采购价不得高于当地零售药店及网售平台「即时达」价格集中区间的 1.3 倍（国办发〔2026〕9号全渠道比价口径）；零售/网售渠道无编码价格按名称对应，编码回写需人工确认。",
   "R7 同通用名不同包装数量的挂网价先按差比价折算再比价：非代表品价 ≤ 代表品价 × 1.95^log₂X（发改价格〔2011〕2452号包装数量差比价），超限进入需核验。",
+  "R8 执行/挂网价低于参考价 50% 视为异常低价信号进入需核验（价格风险预警覆盖异常高价与异常低价两端，防低价恶性竞争与「降价死」，国办发〔2026〕9号风险预警导向）。",
 ];
 
 export interface FixtureRow {
@@ -354,7 +355,9 @@ type IssueKind =
   // 机构挂网价超零售集中价 1.3 倍（但不破最高有效价，命中 R6 而非 R3）
   | "retail_over_1p3x"
   // 大包装规格挂网价超差比价折算上限（2452号 K=1.95^log₂X，命中 R7）
-  | "spec_over_ratio";
+  | "spec_over_ratio"
+  // 异常低价：执行价低于参考价 50%（低价恶性竞争/「降价死」信号，命中 R8）
+  | "price_below_floor";
 
 interface BatchPlan {
   id: string;
@@ -494,6 +497,11 @@ function buildBatch(plan: BatchPlan): FixtureRelease {
         r.procurement_channel = "省级挂网";
         r.unit_price = money(item.referencePrice * (1.16 + rng() * 0.08));
         break;
+      case "price_below_floor":
+        // 低于参考价 50%（35-45%），不触发其他上限类规则
+        r.procurement_channel = "省级挂网";
+        r.unit_price = money(item.referencePrice * (0.35 + rng() * 0.1));
+        break;
       case "collection_not_landed": {
         r.procurement_channel = "集采中选-省平台";
         const outside = REGION_OPTIONS.find((x) => !item.landedRegions.includes(x));
@@ -610,7 +618,8 @@ const PLANS: BatchPlan[] = [
     release_date: "2026-06-20",
     is_sample: false,
     total: 34,
-    issues: { collection_not_landed: 3, price_spike: 3, correctable: 1 },
+    // price_below_floor：R8 异常低价演示素材（低价端治理，路云/9号文风险预警两端口径）
+    issues: { collection_not_landed: 3, price_spike: 3, correctable: 1, price_below_floor: 1 },
   },
   {
     id: "REL-2026-0623-10",

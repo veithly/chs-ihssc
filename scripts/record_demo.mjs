@@ -1,11 +1,17 @@
 #!/usr/bin/env node
-// Build the canonical HackathonHunter Pitch + Demo video for 价序 (V2.2).
+// Build the canonical HackathonHunter Pitch + Demo video for 价序 (V2.3).
+//
+// Visual structure: the pitch scenes ARE the pitch deck (docs/deck/slides
+// 16:9 PNG exports), with the live browser demo block in the middle. The
+// <3min cut maps one slide to each scoring dimension: slide 1-2 (需求洞察)
+// → demo (完成度: 输入-处理-输出闭环) → slide 5 (规则即政策) → slide 8
+// (技术实现) → slide 9 (可落地性/已验证) → slide 10 (落地小切口 CTA).
 //
 // Story: 政策变更后的存量机构执行价复核 Agent。
 // Killer loop on camera: run① 基线核价 → 人审 2 条涨幅异常
 // → 政策同步（真实抓取国家医保局公告）→ 公告人审确认 640→560
 // → run② 漂移检出 + 复核任务 → 人审处置 → 规则挖掘 → dry-run → 激活
-// → run③ 同类项自动处置 → 审计日志。
+// → run③ 同类项自动处置 → 审计日志 → 批次闸门结果页。
 //
 // Pipeline:
 // 1) record real 1080p browser footage from / (landing) → /workspace,
@@ -13,7 +19,7 @@
 // 2) retime footage per beat: provider waits compress hard, clicks stay ~1x,
 //    each demo narration segment gets exactly its narration-sized span
 // 3) generate zh-CN narration from docs/video/pitch-demo-narration.txt
-// 4) write a HyperFrames composition (narration-driven timeline, < 5min)
+// 4) write a HyperFrames composition (deck-slide scenes + demo, < 5min)
 // 5) lint, validate, inspect, render, mux BGM+narration, then ffmpeg media QA
 import { chromium } from "playwright";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -55,22 +61,36 @@ const REUSE_DEMO_FOOTAGE = process.env.REUSE_DEMO_FOOTAGE === "1";
 
 const HERO_PROMPT_KEY = "drift_review_loop";
 
+// The pitch scenes are the deck itself: each entry pins one narration segment
+// onto one slide PNG from docs/deck/slides. `pre` plays before the live demo
+// block, `post` after it (deck order is preserved: 1-3, demo, 4-10).
+const DECK_DIR = join(ROOT, "docs", "deck", "slides");
+const DECK_SCENES_PRE = [
+  { id: "s1", slide: 1 },
+  { id: "s2", slide: 2 },
+];
+const DECK_SCENES_POST = [
+  { id: "s5", slide: 5 },
+  { id: "s8", slide: 8 },
+  { id: "s9", slide: 9 },
+  { id: "s10", slide: 10 },
+];
+
 // Captions are derived 1:1 from the narration segments (see writeProjectFiles), so
 // each subtitle is locked to the voice line it paraphrases — no hand-tuned timestamps.
 const CAPTION_TEXT = {
-  s1: "政策变了，存量执行价还合不合规，价序来管",
-  s2: "政策跟不住 · 审批负担重，一线的两句原话",
-  s3: "首页一个入口：核完并闭环处置这批执行价异常",
+  s1: "把表格交给它，再用一句话说要做什么",
+  s2: "政策跟不住 · 口径对不齐 · 审批负担重",
   demo1: "真实模型核价 · 2452号差比价折算 · 拿不准转人审",
   demo2: "真实抓取医保局公告 · 人审确认 640→560 · 漂移检出",
   demo3: "人审选处置动作，写进不可变决策日志",
-  demo4: "人审反馈挖掘规则 · dry-run 影响面 · 人工激活",
+  demo4: "从人审结论整理规则 · 影响面预览 · 人工激活",
   demo5: "命中规则自动处置，敏感项永远人审",
-  demo6: "批次闸门：苏医保发64号红黄分档 · 每条异常带文号出证",
-  s5: "六类业务对象落 SQLite，效能实时可对账",
-  s6a: "模型出计划，服务端管状态，每步可回放",
-  s6b: "红线：发函、通报、违规认定必须人点头",
-  s7: "verify:v2 一条命令 17 项全绿，评委可复跑",
+  demo6: "批次闸门 42 行出证 · 输入表→处置结果单闭环",
+  s5: "每条校验规则都有文号，不是模型觉得",
+  s8: "模型给计划，服务端管状态 · 白盒审计三层",
+  s9: "17项全绿 · 失败诚实 · 内网千问可跑",
+  s10: "小切口落地：接结算表即用 · 回写贵局工单",
 };
 // Short on-footage pointers during the demo (one per demo narration segment).
 const CALLOUT_TEXT = {
@@ -162,6 +182,15 @@ async function recordProductFootage() {
     viewport: { width: WIDTH, height: HEIGHT },
     recordVideo: { dir: WORK, size: { width: WIDTH, height: HEIGHT } },
     locale: "zh-CN",
+  });
+  // 小序 desktop pet: keep it on camera (it reflects agent mood) but pin it to
+  // the bottom-right corner so it never overlaps task rows / approve buttons.
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem("chs.desktopPet.enabled", "true");
+      localStorage.setItem("chs.desktopPet.position", JSON.stringify({ x: 95, y: 91 }));
+      localStorage.setItem("chs.desktopPet.collapsed", "false");
+    } catch {}
   });
   const page = await ctx.newPage();
   page.setDefaultTimeout(180000);
@@ -378,7 +407,7 @@ async function recordProductFootage() {
   mark("b4-rules", "action");
   await openObjectTab("规则候选");
   await wait(1200);
-  const mineBtn = page.locator("button", { hasText: "从人审反馈挖掘候选" }).first();
+  const mineBtn = page.locator("button", { hasText: /从人审(结论整理规则|反馈挖掘候选)/ }).first();
   await mineBtn.hover(QUICK).catch(() => {});
   await wait(700);
   await mineBtn.click();
@@ -690,6 +719,14 @@ function copyBrand() {
   copyFileSync(join(ROOT, "public", "brand", "logomark.svg"), join(ASSETS, "logomark.svg"));
   copyFileSync(join(ROOT, "public", "brand", "logo-mono.svg"), join(ASSETS, "logo-mono.svg"));
   copyFileSync(join(ROOT, "public", "brand", "wordmark.svg"), join(ASSETS, "wordmark.svg"));
+  for (const scene of [...DECK_SCENES_PRE, ...DECK_SCENES_POST]) {
+    const name = `slide-${String(scene.slide).padStart(2, "0")}.png`;
+    const src = join(DECK_DIR, name);
+    if (!existsSync(src)) {
+      throw new Error(`Missing deck slide export: ${relative(ROOT, src)} — re-run the deck export first.`);
+    }
+    copyFileSync(src, join(ASSETS, `deck-${String(scene.slide).padStart(2, "0")}.png`));
+  }
 }
 
 function escapeHtml(value) {
@@ -840,8 +877,8 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
   const rawDuration = duration(demoVideo);
 
   // --- Narration-driven timeline -------------------------------------------
-  // Every non-demo scene is sized to its own narration: a short lead-in, the
-  // speech itself, then a small tail before it cuts straight to the next scene.
+  // Every deck scene is sized to its own narration: a short lead-in, the
+  // speech itself, then a small tail before it cuts straight to the next slide.
   // Nothing is padded to reach a fixed 5:00 — the total floats to whatever the
   // narration needs and stays under five minutes. The demo block is sized to its
   // narration and the real footage is retimed per beat to fill it, so the
@@ -849,39 +886,51 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
   const segDur = Object.fromEntries(narrationSegments.map((s) => [s.id, s.duration]));
   const sum = (...ids) => ids.reduce((a, id) => a + (segDur[id] || 0), 0);
   const LEAD = 0.35;
-  const TAIL = 1.5;
+  const TAIL = 1.4;
   const SCENE_GAP = 0.4;
   const sceneDur = (...ids) => LEAD + sum(...ids) + Math.max(0, ids.length - 1) * SCENE_GAP + TAIL;
 
-  const s1Start = 0;
-  const s1Duration = sceneDur("s1");
-  const s2Start = s1Start + s1Duration;
-  const s2Duration = sceneDur("s2");
-  const s3Start = s2Start + s2Duration;
-  const s3Duration = sceneDur("s3");
+  for (const scene of [...DECK_SCENES_PRE, ...DECK_SCENES_POST]) {
+    if (!segDur[scene.id]) {
+      throw new Error(`Narration segment "${scene.id}" missing for deck slide ${scene.slide}.`);
+    }
+  }
 
-  const demoStart = s3Start + s3Duration;
+  // Lay the scenes out in deck order: slides 1-3, the live demo, slides 4-10.
+  let cursor = 0;
+  const sceneMeta = [];
+  for (const scene of DECK_SCENES_PRE) {
+    const dur = sceneDur(scene.id);
+    sceneMeta.push({ ...scene, kind: "deck", start: cursor, duration: dur });
+    cursor += dur;
+  }
+  const demoStart = cursor;
   const demoDuration =
     LEAD + sum("demo1", "demo2", "demo3", "demo4", "demo5", "demo6") + 5 * SCENE_GAP + TAIL;
-
-  const resultStart = demoStart + demoDuration;
-  const resultDuration = sceneDur("s5");
-  const mechanismStart = resultStart + resultDuration;
-  const mechanismDuration = sceneDur("s6a", "s6b");
-  const closeStart = mechanismStart + mechanismDuration;
-  const closeDuration = sceneDur("s7");
-  const total = closeStart + closeDuration;
-  const runtimeLabel = `${Math.floor(total / 60)}:${String(Math.round(total % 60)).padStart(2, "0")}`;
+  sceneMeta.push({ id: "demo", kind: "demo", start: demoStart, duration: demoDuration });
+  cursor += demoDuration;
+  const deckReturnStart = cursor;
+  for (const scene of DECK_SCENES_POST) {
+    const dur = sceneDur(scene.id);
+    sceneMeta.push({ ...scene, kind: "deck", start: cursor, duration: dur });
+    cursor += dur;
+  }
+  const total = cursor;
+  const closeStart = sceneMeta.at(-1).start;
+  console.log(
+    `[timeline] ${Math.floor(total / 60)}:${String(Math.round(total % 60)).padStart(2, "0")} — ` +
+      sceneMeta.map((s) => `${s.id}@${s.start.toFixed(1)}s`).join(" "),
+  );
 
   // Re-anchor every narration line onto the scene it belongs to; the sequential
   // packer in buildFinalAudio then lands each voice line on its own scene.
-  const anchors = {
-    s1: s1Start + LEAD, s2: s2Start + LEAD, s3: s3Start + LEAD,
-    demo1: demoStart + LEAD, demo2: demoStart + LEAD, demo3: demoStart + LEAD,
-    demo4: demoStart + LEAD, demo5: demoStart + LEAD, demo6: demoStart + LEAD,
-    s5: resultStart + LEAD, s6a: mechanismStart + LEAD, s6b: mechanismStart + LEAD,
-    s7: closeStart + LEAD,
-  };
+  const anchors = {};
+  for (const scene of sceneMeta) {
+    if (scene.kind === "deck") anchors[scene.id] = scene.start + LEAD;
+  }
+  for (const id of ["demo1", "demo2", "demo3", "demo4", "demo5", "demo6"]) {
+    anchors[id] = demoStart + LEAD;
+  }
   for (const seg of narrationSegments) {
     if (anchors[seg.id] != null) seg.start = anchors[seg.id];
   }
@@ -954,6 +1003,40 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
     })
     .join("\n");
 
+  // Deck slide scenes: the exported 16:9 slide PNG fills the frame, with a slow
+  // Ken Burns drift (alternating in/out) and a quick slide-push on entry.
+  const deckScenes = sceneMeta.filter((s) => s.kind === "deck");
+  const deckSectionsHtml = deckScenes
+    .map((scene, i) => {
+      const pad = String(scene.slide).padStart(2, "0");
+      return `      <section id="${scene.id}" class="deck-scene clip" data-start="${scene.start.toFixed(2)}" data-duration="${scene.duration.toFixed(2)}" data-track-index="${1 + i}">
+        <img class="deck-img" src="assets/deck-${pad}.png" alt="" />
+      </section>`;
+    })
+    .join("\n");
+  const kenBurnsOrigins = ["50% 38%", "62% 55%", "40% 60%", "55% 42%"];
+  const deckTweens = deckScenes
+    .map((scene, i) => {
+      const zoomIn = i % 2 === 0;
+      const origin = kenBurnsOrigins[i % kenBurnsOrigins.length];
+      const from = zoomIn ? 1.0 : 1.05;
+      const to = zoomIn ? 1.05 : 1.0;
+      const lines = [];
+      if (scene.start > 0.01) {
+        // Seed opacity 0 at t=0 so the full-frame section never counts as
+        // visible before its entrance tween (hyperframes lint requirement).
+        lines.push(`      tl.set("#${scene.id}", { opacity: 0 }, 0);`);
+        lines.push(
+          `      tl.fromTo("#${scene.id}", { opacity: 0, x: 72 }, { opacity: 1, x: 0, duration: .55, ease: "power3.out" }, ${scene.start.toFixed(2)});`,
+        );
+      }
+      lines.push(
+        `      tl.fromTo("#${scene.id} .deck-img", { scale: ${from}, transformOrigin: "${origin}" }, { scale: ${to}, duration: ${Math.max(1, scene.duration - 0.1).toFixed(2)}, ease: "none" }, ${scene.start.toFixed(2)});`,
+      );
+      return lines.join("\n");
+    })
+    .join("\n");
+
   const html = `<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -966,13 +1049,9 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
         width: ${WIDTH}px;
         height: ${HEIGHT}px;
         overflow: hidden;
-        background: #f4f7fb;
+        background: #eef2f7;
         color: #142333;
         font-family: sans-serif;
-      }
-      .mono {
-        font-family: monospace;
-        font-variant-numeric: tabular-nums;
       }
       .clip {
         position: absolute;
@@ -980,154 +1059,18 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
         width: 100%;
         height: 100%;
       }
-      .scene {
-        padding: 88px 112px;
+      .deck-scene {
         overflow: hidden;
-        background:
-          radial-gradient(860px 420px at 14% -6%, rgba(31,111,235,.18), rgba(31,111,235,0) 68%),
-          radial-gradient(680px 380px at 88% 92%, rgba(31,157,87,.15), rgba(31,157,87,0) 72%),
-          linear-gradient(120deg, rgba(242,184,75,.10), rgba(242,184,75,0) 42%),
-          #f4f7fb;
+        background: #eef2f7;
       }
-      .texture {
+      .deck-img {
         position: absolute;
         inset: 0;
-        background-image:
-          linear-gradient(rgba(20,35,51,.055) 2px, rgba(20,35,51,0) 2px),
-          linear-gradient(90deg, rgba(20,35,51,.045) 2px, rgba(20,35,51,0) 2px);
-        background-size: 54px 54px;
-        opacity: .72;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        will-change: transform;
       }
-      .ghost {
-        position: absolute;
-        right: -42px;
-        bottom: -56px;
-        font-size: 184px;
-        font-weight: 900;
-        color: rgba(20,35,51,.055);
-        letter-spacing: 0;
-      }
-      .topline {
-        position: absolute;
-        left: 112px;
-        right: 112px;
-        top: 58px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        color: #536477;
-        font-size: 24px;
-        font-weight: 800;
-      }
-      .brand-lock {
-        display: flex;
-        align-items: center;
-        gap: 28px;
-        position: relative;
-        z-index: 2;
-      }
-      .logo { width: 132px; height: 132px; }
-      .brand-text { font-size: 76px; font-weight: 900; letter-spacing: 0; color: #142333; }
-      .kicker {
-        color: #1f6feb;
-        font-size: 28px;
-        font-weight: 900;
-        margin-bottom: 24px;
-        position: relative;
-        z-index: 2;
-      }
-      .headline {
-        max-width: 1160px;
-        font-size: 88px;
-        line-height: 1.08;
-        font-weight: 900;
-        letter-spacing: 0;
-        position: relative;
-        z-index: 2;
-      }
-      .subline {
-        max-width: 1080px;
-        margin-top: 28px;
-        font-size: 38px;
-        line-height: 1.42;
-        color: #435365;
-        font-weight: 650;
-        position: relative;
-        z-index: 2;
-      }
-      .rail {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 20px;
-        margin-top: 52px;
-        position: relative;
-        z-index: 2;
-      }
-      .source-card,
-      .step-card,
-      .proof-panel {
-        background: rgba(255,255,255,.92);
-        border: 2px solid #dce7f2;
-        box-shadow: 0 22px 54px rgba(20,35,51,.08);
-      }
-      .source-card {
-        min-height: 178px;
-        padding: 26px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-      .source-card b { display: block; font-size: 34px; color: #142333; }
-      .source-card span { color: #536477; font-size: 24px; line-height: 1.38; font-weight: 650; }
-      .entry-card {
-        width: 860px;
-        margin-top: 40px;
-        padding: 34px;
-        background: #fff;
-        border: 3px solid #1f6feb;
-        box-shadow: 0 28px 70px rgba(31,111,235,.18);
-        position: relative;
-        z-index: 2;
-      }
-      .field {
-        margin-top: 20px;
-        min-height: 118px;
-        padding: 22px;
-        border: 2px solid #dce7f2;
-        background: #fbfdff;
-        color: #142333;
-        font-size: 27px;
-        line-height: 1.45;
-        font-weight: 700;
-      }
-      .button-pill {
-        display: inline-flex;
-        align-items: center;
-        margin-top: 24px;
-        padding: 18px 28px;
-        border-radius: 999px;
-        background: #1f6feb;
-        color: #fff;
-        font-size: 28px;
-        font-weight: 900;
-      }
-      .step-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 20px;
-        margin-top: 56px;
-        position: relative;
-        z-index: 2;
-      }
-      .step-card {
-        min-height: 210px;
-        padding: 28px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-      .step-card strong { font-size: 32px; color: #142333; }
-      .step-card span { font-size: 23px; line-height: 1.4; color: #536477; font-weight: 650; }
       .demo-stage {
         position: absolute;
         inset: 0;
@@ -1185,27 +1128,6 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
         font-weight: 900;
         box-shadow: 0 22px 58px rgba(0,0,0,.24);
       }
-      .proof-grid {
-        display: grid;
-        grid-template-columns: 1.2fr 1fr;
-        gap: 36px;
-        margin-top: 50px;
-        position: relative;
-        z-index: 2;
-      }
-      .proof-panel { padding: 34px; }
-      .proof-panel h3 { font-size: 35px; margin-bottom: 22px; }
-      .proof-line {
-        display: flex;
-        justify-content: space-between;
-        gap: 24px;
-        padding: 15px 0;
-        border-top: 2px solid #e3ebf3;
-        font-size: 26px;
-        font-weight: 850;
-      }
-      .proof-line span { color: #536477; font-weight: 750; }
-      .proof-line strong { text-align: right; }
       .caption {
         /* override .clip { width:100%; inset:0 } so the pill shrinks to its text
            and centers via left:0/right:0 + margin auto (no transform — GSAP owns that). */
@@ -1235,154 +1157,30 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
         transform: translateX(-105%);
         z-index: 50;
       }
-      .accent-line {
-        width: 360px;
-        height: 9px;
-        background: #1f6feb;
-        margin-top: 34px;
-        position: relative;
-        z-index: 2;
-      }
-      .accent-line::after {
-        content: "";
-        position: absolute;
-        right: -28px;
-        top: -9px;
-        width: 27px;
-        height: 27px;
-        border-radius: 50%;
-        background: #1f9d57;
-      }
-      .final-mark {
-        position: absolute;
-        right: 114px;
-        bottom: 92px;
-        width: 184px;
-        height: 184px;
-        opacity: .96;
-      }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="main" data-start="0" data-duration="${total}" data-width="${WIDTH}" data-height="${HEIGHT}">
       <!-- Audio is mixed separately (BGM + scene-aligned narration, sidechain-ducked) and muxed after render; visual render stays silent. -->
 
-      <section id="s1" class="scene clip" data-start="0" data-duration="${s1Duration.toFixed(2)}" data-track-index="1">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>PRICE ORDER</div>
-        <div class="topline"><span>CHS-IHSSC · 医药价格治理</span><span class="mono">Pitch + Demo · ${runtimeLabel}</span></div>
-        <div class="brand-lock" style="margin-top: 220px;">
-          <img class="logo" src="assets/logomark.svg" alt="" />
-          <div>
-            <div class="brand-text">价序</div>
-            <div class="subline" style="margin-top: 12px;">政策变更后的存量机构执行价复核 Agent</div>
-          </div>
-        </div>
-        <img class="final-mark" src="assets/logo-mono.svg" alt="" />
-      </section>
-
-      <section id="s2" class="scene clip" data-start="${s2Start.toFixed(2)}" data-duration="${s2Duration.toFixed(2)}" data-track-index="2">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>POLICY</div>
-        <div class="kicker">一线原话</div>
-        <h1 class="headline" style="font-size: 78px;">政策一变，昨天核过的价，今天就不算数。</h1>
-        <div class="rail">
-          <div class="source-card"><b>政策更新</b><span>集采中选价一落地，几万条存量执行价要重新对</span></div>
-          <div class="source-card"><b>存量执行价</b><span>编码、包装单位、目录别名各说各话</span></div>
-          <div class="source-card"><b>人工审批</b><span>规则明明清楚的项，也要一条条人工点头</span></div>
-          <div class="source-card"><b>经验流失</b><span>审完的判断没人记住，下个月从零再来</span></div>
-        </div>
-      </section>
-
-      <section id="s3" class="scene clip" data-start="${s3Start.toFixed(2)}" data-duration="${s3Duration.toFixed(2)}" data-track-index="3">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>WORKSPACE</div>
-        <div class="kicker">第一屏</div>
-        <h1 class="headline" style="font-size: 78px;">首页只有一个入口。</h1>
-        <div class="entry-card">
-          <div class="mono" style="font-size: 25px; color: #536477; font-weight: 800;">/workspace?prompt=drift_review_loop</div>
-          <div class="field">核完并闭环处置这批机构执行价异常：对照最新政策事实检出漂移并生成复核任务；命中激活规则的自动处置；其余转人审；人审结论沉淀为规则候选。</div>
-          <div class="button-pill">发给价序</div>
-        </div>
-      </section>
-
-      <div id="demo-bg" class="demo-stage clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="4"></div>
-      <div id="demo-chrome" class="demo-chrome clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="5">
+${deckSectionsHtml}
+      <div id="demo-bg" class="demo-stage clip" data-start="${demoStart.toFixed(2)}" data-duration="${demoDuration.toFixed(2)}" data-track-index="21"></div>
+      <div id="demo-chrome" class="demo-chrome clip" data-start="${demoStart.toFixed(2)}" data-duration="${demoDuration.toFixed(2)}" data-track-index="22">
         <span class="dot"></span>
         <span>real browser demo · /workspace + 批次闸门 · 四次真实 live-provider run · 政策同步真实抓取</span>
       </div>
-      <video id="demo-video" class="demo-video clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="6" src="assets/demo-footage-fit.mp4" muted playsinline></video>
+      <video id="demo-video" class="demo-video clip" data-start="${demoStart.toFixed(2)}" data-duration="${demoDuration.toFixed(2)}" data-track-index="23" src="assets/demo-footage-fit.mp4" muted playsinline></video>
       ${callouts}
 
-      <section id="s5" class="scene clip" data-start="${resultStart}" data-duration="${resultDuration}" data-track-index="7">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>OBJECTS</div>
-        <div class="kicker">结果落到对象里</div>
-        <h1 class="headline" style="font-size: 80px;">一批乱表，跑成六类可审批对象。</h1>
-        <div class="proof-grid">
-          <div class="proof-panel">
-            <h3>六类业务对象</h3>
-            <div class="proof-line"><span>漂移队列</span><strong>检出 → 复核 → 闭环</strong></div>
-            <div class="proof-line"><span>人审任务</span><strong>批准即学习样本</strong></div>
-            <div class="proof-line"><span>处置建议卡</span><strong>机构口径草稿</strong></div>
-            <div class="proof-line"><span>规则候选</span><strong>dry-run 后人工激活</strong></div>
-            <div class="proof-line"><span>政策事实</span><strong>版本 hash 可追溯</strong></div>
-            <div class="proof-line"><span>数据修复</span><strong>映射 · patch · 归并</strong></div>
-          </div>
-          <div class="proof-panel">
-            <h3>系统写入</h3>
-            <div class="proof-line"><span>状态库</span><strong>本地 SQLite</strong></div>
-            <div class="proof-line"><span>决策日志</span><strong>不可变 · 全留痕</strong></div>
-            <div class="proof-line"><span>过程回放</span><strong>run_event 每步</strong></div>
-            <div class="proof-line"><span>效能条</span><strong>实时 · 可对账</strong></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="s6" class="scene clip" data-start="${mechanismStart}" data-duration="${mechanismDuration}" data-track-index="8">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>LOOP</div>
-        <div class="kicker">它每次怎么跑</div>
-        <h1 class="headline" style="font-size: 76px;">模型出计划，服务端管状态和红线。</h1>
-        <div class="step-grid">
-          <div class="step-card"><strong>读上下文</strong><span>执行价表 · 政策事实 · 决策日志</span></div>
-          <div class="step-card"><strong>排计划 · 跑工具</strong><span>核价 · 归并 · 换算 · 漂移检测</span></div>
-          <div class="step-card"><strong>写状态 · 转人审</strong><span>六类对象落库 · 拿不准不硬判</span></div>
-          <div class="step-card"><strong>学规则 · 过护栏</strong><span>人审沉淀 → dry-run → 激活 → 自动处置</span></div>
-        </div>
-      </section>
-
-      <section id="s7" class="scene clip" data-start="${closeStart}" data-duration="${closeDuration}" data-track-index="9">
-        <div class="texture" data-layout-ignore></div>
-        <div class="ghost" data-layout-ignore>RUN IT</div>
-        <div class="brand-lock" style="margin-top: 190px;">
-          <img class="logo" src="assets/logomark.svg" alt="" />
-          <div>
-            <div class="kicker" style="margin-bottom: 12px;">评委可复跑</div>
-            <h1 class="headline" style="font-size: 76px; max-width: 1200px;">一条命令复跑全链路，十七项检查全绿。</h1>
-            <div class="subline">政策同步 → 漂移 → 人审 → 挖掘 → 激活 → 自动处置 · 合成/脱敏数据 · 真实模型 · auth_failed 不编假线索</div>
-            <div class="accent-line"></div>
-          </div>
-        </div>
-      </section>
-
-      <div id="w1" class="wipe clip" data-layout-ignore data-start="${(s2Start - 0.35).toFixed(2)}" data-duration=".74" data-track-index="60"></div>
-      <div id="w2" class="wipe clip" data-layout-ignore data-start="${(s3Start - 0.35).toFixed(2)}" data-duration=".74" data-track-index="61"></div>
-      <div id="w3" class="wipe clip" data-layout-ignore data-start="${(demoStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="62"></div>
-      <div id="w4" class="wipe clip" data-layout-ignore data-start="${(resultStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="63"></div>
-      <div id="w5" class="wipe clip" data-layout-ignore data-start="${(mechanismStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="64"></div>
-      <div id="w6" class="wipe clip" data-layout-ignore data-start="${(closeStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="65"></div>
+      <div id="w1" class="wipe clip" data-layout-ignore data-start="${(demoStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="60"></div>
+      <div id="w2" class="wipe clip" data-layout-ignore data-start="${(deckReturnStart - 0.35).toFixed(2)}" data-duration=".74" data-track-index="61"></div>
       ${captionHtml}
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      const inUp = (sel, t, y = 46, dur = .72, ease = "power3.out") =>
-        tl.fromTo(sel, { opacity: 0, y }, { opacity: 1, y: 0, duration: dur, ease }, t);
       const inLeft = (sel, t, x = -56, dur = .68, ease = "expo.out") =>
-        tl.fromTo(sel, { opacity: 0, x }, { opacity: 1, x: 0, duration: dur, ease }, t);
-      const inRight = (sel, t, x = 58, dur = .64, ease = "power4.out") =>
         tl.fromTo(sel, { opacity: 0, x }, { opacity: 1, x: 0, duration: dur, ease }, t);
       const inScale = (sel, t, dur = .65, ease = "back.out(1.4)") =>
         tl.fromTo(sel, { opacity: 0, scale: .92 }, { opacity: 1, scale: 1, duration: dur, ease }, t);
@@ -1391,48 +1189,14 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
         tl.to(sel, { xPercent: 105, duration: .40, ease: "power4.out" }, t + .34);
       }
 
-      inScale("#s1 .logo", .24, .82, "expo.out");
-      inLeft("#s1 .brand-text", .48, -72, .78, "power3.out");
-      inUp("#s1 .subline", .82, 34, .68, "sine.out");
-      inRight("#s1 .topline", .18, 32, .62, "power4.out");
-      tl.fromTo("#s1 .final-mark", { opacity: 0, rotation: -10, scale: .88 }, { opacity: .96, rotation: 0, scale: 1, duration: 1.05, ease: "expo.out" }, 1.2);
-      tl.to("#s1 .final-mark", { rotation: 2, scale: 1.025, duration: 5.4, yoyo: true, repeat: 1, ease: "sine.inOut" }, 2.5);
-
-      inLeft("#s2 .kicker", ${(s2Start + 0.4).toFixed(2)}, -44, .48, "power4.out");
-      inUp("#s2 .headline", ${(s2Start + 0.75).toFixed(2)}, 62, .84, "expo.out");
-      tl.fromTo("#s2 .source-card", { opacity: 0, y: 48, scale: .97 }, { opacity: 1, y: 0, scale: 1, duration: .66, stagger: .12, ease: "back.out(1.16)" }, ${(s2Start + 1.75).toFixed(2)});
-
-      inLeft("#s3 .kicker", ${(s3Start + 0.35).toFixed(2)}, -44, .48, "power4.out");
-      inUp("#s3 .headline", ${(s3Start + 0.7).toFixed(2)}, 52, .76, "expo.out");
-      tl.fromTo("#s3 .entry-card", { opacity: 0, x: 64, scale: .985 }, { opacity: 1, x: 0, scale: 1, duration: .78, ease: "power3.out" }, ${(s3Start + 1.7).toFixed(2)});
-      tl.fromTo("#s3 .button-pill", { opacity: 0, scale: .88 }, { opacity: 1, scale: 1, duration: .42, ease: "back.out(1.6)" }, ${(s3Start + 2.65).toFixed(2)});
-
-      inScale("#demo-video", ${demoStart + 0.34}, .76, "expo.out");
-      inLeft("#demo-chrome", ${demoStart + 0.24}, -80, .56, "power3.out");
+${deckTweens}
+      inScale("#demo-video", ${(demoStart + 0.34).toFixed(2)}, .76, "expo.out");
+      inLeft("#demo-chrome", ${(demoStart + 0.24).toFixed(2)}, -80, .56, "power3.out");
 ${calloutTweens}
 
-      inLeft("#s5 .kicker", ${resultStart + 0.26}, -42, .46, "power4.out");
-      inUp("#s5 .headline", ${resultStart + 0.56}, 54, .78, "expo.out");
-      tl.fromTo("#s5 .proof-panel", { opacity: 0, y: 44, scale: .98 }, { opacity: 1, y: 0, scale: 1, duration: .72, stagger: .16, ease: "power3.out" }, ${resultStart + 1.55});
-      tl.fromTo("#s5 .proof-line", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: .36, stagger: .045, ease: "sine.out" }, ${resultStart + 2.25});
-
-      inLeft("#s6 .kicker", ${mechanismStart + 0.26}, -42, .46, "power4.out");
-      inUp("#s6 .headline", ${mechanismStart + 0.54}, 54, .78, "expo.out");
-      tl.fromTo("#s6 .step-card", { opacity: 0, y: 46, rotationX: 5 }, { opacity: 1, y: 0, rotationX: 0, duration: .72, stagger: .1, ease: "power3.out" }, ${mechanismStart + 1.55});
-
-      inScale("#s7 .logo", ${closeStart + 0.35}, .72, "expo.out");
-      inLeft("#s7 .kicker", ${closeStart + 0.58}, -48, .5, "power3.out");
-      inUp("#s7 .headline", ${closeStart + 0.9}, 54, .82, "expo.out");
-      inUp("#s7 .subline", ${closeStart + 1.72}, 36, .62, "sine.out");
-      tl.fromTo("#s7 .accent-line", { scaleX: 0, transformOrigin: "left center" }, { scaleX: 1, duration: .7, ease: "power3.out" }, ${closeStart + 2.4});
-      tl.to("#s7", { opacity: 0, duration: .8, ease: "sine.inOut" }, ${total - 0.9});
-
-      wipe("#w1", ${(s2Start - 0.35).toFixed(2)});
-      wipe("#w2", ${(s3Start - 0.35).toFixed(2)});
-      wipe("#w3", ${demoStart - 0.35});
-      wipe("#w4", ${resultStart - 0.35});
-      wipe("#w5", ${mechanismStart - 0.35});
-      wipe("#w6", ${closeStart - 0.35});
+      wipe("#w1", ${(demoStart - 0.35).toFixed(2)});
+      wipe("#w2", ${(deckReturnStart - 0.35).toFixed(2)});
+      tl.to("#s10", { opacity: 0, duration: .8, ease: "sine.inOut" }, ${(total - 0.9).toFixed(2)});
 ${captionTweens}
 
       window.__timelines["main"] = tl;
@@ -1476,11 +1240,12 @@ ${captionTweens}
     join(PROJECT, "meta.json"),
     JSON.stringify(
       {
-        id: "jiaxu-pitch-demo-v22",
-        name: "价序 Pitch + Demo (V2.2)",
+        id: "jiaxu-pitch-demo-v23",
+        name: "价序 Pitch + Demo (V2.3 · deck-driven)",
         createdAt: new Date().toISOString(),
         duration: total,
         runtimeMode: "narration-driven",
+        visualMode: "pitch-deck slides (docs/deck/slides) + live browser demo",
         baseUrl: BASE,
         ttsProvider: TTS_PROVIDER,
         ttsVoice: TTS_VOICE,
@@ -1489,6 +1254,13 @@ ${captionTweens}
         narrationDuration: narrationSegments.reduce((acc, s) => acc + s.duration, 0),
         narrationSegments: narrationSegments.map((s) => ({ id: s.id, start: s.start, duration: Number(s.duration.toFixed(2)) })),
         narrationCharacters: narration.length,
+        scenes: sceneMeta.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          slide: s.slide ?? null,
+          start: Number(s.start.toFixed(2)),
+          duration: Number(s.duration.toFixed(2)),
+        })),
         demoStart,
         demoDuration,
         demoBeats,
@@ -1501,8 +1273,7 @@ ${captionTweens}
           speed_x: Number((1 / p.factor).toFixed(2)),
         })),
         demoTargets: targets,
-        resultStart,
-        mechanismStart,
+        deckReturnStart,
         closeStart,
         hyperframesVersion: HF_VERSION,
       },
@@ -1518,38 +1289,33 @@ ${captionTweens}
     rawDuration,
     narrationSegments,
     audioFinal,
-    s2Start,
-    s3Start,
+    sceneMeta,
     demoStart,
-    resultStart,
-    mechanismStart,
+    deckReturnStart,
     closeStart,
   };
 }
 
-// Inspect samples must dodge the six 0.74s wipe transitions: the wipe panel
-// intentionally covers the incoming scene, and a sample inside that window
-// reports the covered text as an occlusion error. Sampling fixed mid-scene
-// fractions keeps the full layout audit active on every real frame.
+// Inspect samples must dodge the two 0.74s wipe transitions (deck→demo and
+// demo→deck): the wipe panel intentionally covers the incoming scene, and a
+// sample inside that window reports the covered content as an occlusion error.
+// Sampling fixed mid-scene fractions keeps the layout audit on real frames.
 function inspectSampleTimes(meta) {
-  const scenes = [
-    [0, meta.s2Start],
-    [meta.s2Start, meta.s3Start],
-    [meta.s3Start, meta.demoStart],
-    [meta.resultStart, meta.mechanismStart],
-    [meta.mechanismStart, meta.closeStart],
-    [meta.closeStart, meta.total - 1],
-  ];
   const times = [];
-  for (const [a, b] of scenes) {
-    const span = b - a;
-    times.push(a + span * 0.35, a + span * 0.75);
+  for (const scene of meta.sceneMeta) {
+    if (scene.kind === "deck") {
+      times.push(scene.start + scene.duration * 0.4, scene.start + scene.duration * 0.8);
+    } else {
+      for (const f of [0.08, 0.28, 0.48, 0.68, 0.88]) {
+        times.push(scene.start + scene.duration * f);
+      }
+    }
   }
-  const demoSpan = meta.resultStart - meta.demoStart;
-  for (const f of [0.08, 0.28, 0.48, 0.68, 0.88]) {
-    times.push(meta.demoStart + demoSpan * f);
-  }
-  return times.sort((x, y) => x - y).map((t) => t.toFixed(2)).join(",");
+  return times
+    .map((t) => Math.min(t, meta.total - 0.5))
+    .sort((x, y) => x - y)
+    .map((t) => t.toFixed(2))
+    .join(",");
 }
 
 function renderVideo(meta) {
@@ -1574,6 +1340,10 @@ function renderVideo(meta) {
       console.error(inspect.stdout);
       console.error(inspect.stderr);
       throw new Error("HyperFrames inspect failed.");
+    }
+    if (process.env.SKIP_RENDER === "1") {
+      console.log("[video] SKIP_RENDER=1 → composition checks passed, stopping before render.");
+      return null;
     }
     run("npx", [...HF, "render", PROJECT, "--output", rendered, "--fps", "30", "--quality", "high"]);
   }
@@ -1699,6 +1469,10 @@ function qaVideo(videoPath, meta) {
     },
     composed_duration_s: meta.total,
     runtime_mode: "narration-driven (scenes cut on narration end, total < 5min)",
+    visual_mode: "pitch-deck slides 01-10 (docs/deck/slides) + live browser demo between slides 03/04",
+    deck_scenes: meta.sceneMeta
+      .filter((s) => s.kind === "deck")
+      .map((s) => ({ id: s.id, slide: s.slide, start_s: Number(s.start.toFixed(2)), duration_s: Number(s.duration.toFixed(2)) })),
     demo_retime: {
       mode: "per-beat (provider waits compressed, clicks near 1x)",
       beats: meta.retimePlan.map((p) => ({
@@ -1718,8 +1492,7 @@ function qaVideo(videoPath, meta) {
     contact_sheet: relative(ROOT, join(QA, "contact-sheet.jpg")),
     real_browser_path: `${BASE}/ → /workspace（政策变更→漂移→人审→规则激活→自动处置）→ /release/REL-2026-0623-07/result（差比价+64号红黄分档）`,
     demo_start_s: meta.demoStart,
-    result_start_s: Number(meta.resultStart.toFixed(2)),
-    mechanism_start_s: Number(meta.mechanismStart.toFixed(2)),
+    deck_return_start_s: Number(meta.deckReturnStart.toFixed(2)),
     close_start_s: Number(meta.closeStart.toFixed(2)),
   };
   writeFileSync(join(QA, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
@@ -1756,6 +1529,7 @@ async function main() {
   const { segments: narrationSegments, narration } = await generateAudio();
   const meta = writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration });
   const videoPath = renderVideo(meta);
+  if (!videoPath) return;
   qaVideo(videoPath, meta);
   rmSync(WORK, { recursive: true, force: true });
   console.log("[video] done ->", videoPath);

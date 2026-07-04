@@ -42,6 +42,8 @@ export interface PriceFinding {
   ceiling: number | null;
   overCeiling: boolean;
   spike: boolean;
+  // R8 异常低价：低于参考价 50%（低价恶性竞争/「降价死」信号，风险预警覆盖高低两端）
+  tooLow: boolean;
   detail: string;
 }
 
@@ -195,6 +197,7 @@ export function referencePriceMonitor(row: CandidateRow): {
         ceiling: item?.ceilingPrice ?? null,
         overCeiling: price === null,
         spike: false,
+        tooLow: false,
         detail: price === null ? `单价无法解析：${row.unit_price}` : "价格项目无法匹配参考价",
       },
       call: tc(
@@ -209,14 +212,23 @@ export function referencePriceMonitor(row: CandidateRow): {
   }
   const overCeiling = price > item.ceilingPrice;
   const spike = !overCeiling && price > item.referencePrice * 1.15;
-  const ok = !overCeiling && !spike;
+  // R8 异常低价：机构挂网/议价渠道低于参考价 50%（价格风险预警覆盖高低两端，防低价恶性
+  // 竞争与「降价死」）。集采中选渠道豁免——中选价深度低于参考价是集采结果，不是异常。
+  const institutionalChannel = (RETAIL_COMPARE_CHANNELS as readonly string[]).includes(
+    row.procurement_channel,
+  );
+  const tooLow =
+    !overCeiling && !spike && institutionalChannel && price < item.referencePrice * 0.5;
+  const ok = !overCeiling && !spike && !tooLow;
   // 苏医保发〔2021〕64号红黄预警分档：按相对基准价的倍数标注提醒/约谈/暂停交易档位。
   const tier = overCeiling ? warningTierFor(price / item.ceilingPrice) : null;
   const detail = overCeiling
     ? `单价 ${price.toFixed(2)} 高于最高有效价 ${item.ceilingPrice.toFixed(2)}（${(price / item.ceilingPrice).toFixed(1)} 倍${tier ? ` → ${tier.label}：${tier.action}` : ""}）`
     : spike
       ? `单价 ${price.toFixed(2)} 较参考价 ${item.referencePrice.toFixed(2)} 涨幅超过 15%`
-      : `单价 ${price.toFixed(2)} 在参考区间内`;
+      : tooLow
+        ? `单价 ${price.toFixed(2)} 低于参考价 ${item.referencePrice.toFixed(2)} 的 50%（异常低价信号，需核实报价真实性与供应可持续性）`
+        : `单价 ${price.toFixed(2)} 在参考区间内`;
   return {
     finding: {
       ok,
@@ -225,6 +237,7 @@ export function referencePriceMonitor(row: CandidateRow): {
       ceiling: item.ceilingPrice,
       overCeiling,
       spike,
+      tooLow,
       detail,
     },
     call: tc(
@@ -233,7 +246,7 @@ export function referencePriceMonitor(row: CandidateRow): {
       `item_code=${code}, unit_price=${row.unit_price}`,
       detail,
       ok,
-      overCeiling ? "price_over_ceiling" : spike ? "price_spike" : undefined,
+      overCeiling ? "price_over_ceiling" : spike ? "price_spike" : tooLow ? "price_below_floor" : undefined,
     ),
   };
 }
@@ -684,6 +697,20 @@ export function classifyRow(
       issueText: `医保项目编码 ${row.item_code} 可标准化为 ${standard.suggestion}（${standard.itemName}）。`,
       recommendation: "审核编码纠错提案，确认后按标准编码回写并重跑价格监测。",
       suggestion: standard.suggestion,
+    };
+  } else if (price.tooLow) {
+    // 排在编码纠错之后：别名行的比价基准要等编码人工确认回写才可信（先标化再比价）。
+    verdict = {
+      state: "需核验",
+      issueType: "price_below_floor",
+      severity: "medium",
+      sourceRule: "R8 执行价低于参考价 50% 视为异常低价信号（风险预警覆盖高低两端）",
+      confidence: 0.75,
+      detectedFields: ["unit_price"],
+      writer: "approval",
+      issueText: price.detail,
+      recommendation:
+        "路由价格监测岗核实：是否集采降价/赠送政策等正当原因；排除低价恶性竞争与「降价死」断供风险后确认落地。",
     };
   } else {
     verdict = {

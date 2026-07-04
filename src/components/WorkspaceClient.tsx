@@ -7,12 +7,15 @@ import {
   ArrowRightIcon,
   CheckCircledIcon,
   ExclamationTriangleIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   LightningBoltIcon,
   Link2Icon,
   LoopIcon,
+  MagicWandIcon,
   PaperPlaneIcon,
   ReaderIcon,
+  UploadIcon,
 } from "@radix-ui/react-icons";
 import type { ProviderStatus } from "@/lib/env";
 import type {
@@ -69,6 +72,18 @@ const AUTO_SWITCH_ORDER: ObjectTabKey[] = ["drift", "task", "draft", "repair"];
 const FINAL_ACTIONS = ["机构核实", "集采催办", "转数据治理", "排除（误报）"] as const;
 type PetSyncState = "running" | "needs" | "failed" | "degraded" | "ready" | "idle";
 
+// 修复提案卡展示用：目标字段 → 业务字段名
+const REPAIR_FIELD_LABELS: Record<string, string> = {
+  item_code: "医保项目编码",
+  item_name: "药品/耗材名称",
+  price_date: "价格日期",
+  procurement_channel: "采购渠道",
+  region: "地区",
+  unit_price: "机构执行价",
+  institution_name: "机构名称",
+  package_unit: "包装单位",
+};
+
 function threadStateLabel(state: string) {
   if (state === "needs_user") return "待人工确认";
   if (state === "running") return "正在核查";
@@ -118,7 +133,28 @@ interface ArtifactRow {
   url: string;
   published_at: string | null;
   content_hash: string;
+  artifact_type?: string;
   status: string;
+  raw_meta_json?: string | null;
+}
+
+// 内网上传 CSV 解析出的结构化事实建议（存于 artifact.raw_meta_json.suggestedFacts）
+interface SuggestedFact {
+  item_code: string;
+  item_name?: string;
+  reference_price?: number;
+  ceiling_price?: number;
+  collective_price?: number;
+}
+
+function suggestedFactsOf(artifact: ArtifactRow): SuggestedFact[] {
+  if (!artifact.raw_meta_json) return [];
+  try {
+    const meta = JSON.parse(artifact.raw_meta_json) as { suggestedFacts?: SuggestedFact[] };
+    return Array.isArray(meta.suggestedFacts) ? meta.suggestedFacts : [];
+  } catch {
+    return [];
+  }
 }
 
 interface DecisionRow {
@@ -477,6 +513,15 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     return idx === -1 ? messages.length : idx;
   })();
 
+  // 会话流提案卡：最近一次 run 的修复提案 + 待批处置直接跟在 agent 回答后面，
+  // 在对话里就能编辑修复值、采纳/批准，不用去右侧找。
+  const hasProposalCard =
+    !isRunning && Boolean(latestRunId) && (repairs.length > 0 || tasks.length > 0);
+  const proposalAfterIndex =
+    hasProposalCard && stepsBeforeIndex >= 0 && stepsBeforeIndex < messages.length
+      ? stepsBeforeIndex
+      : -1;
+
   const openDrifts = policy.drifts.filter((d) => d.status === "detected");
   const visibleRules = policy.rules.filter(
     (r) => r.status === "pending_review" || r.status === "active" || r.status === "suspended",
@@ -545,6 +590,91 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       const j = await res.json();
       setPolicyMsg(j.message ?? "");
       await Promise.all([refreshSnapshot(), refreshPolicy()]);
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
+  // 会话流修复提案卡：采纳（可带人工编辑值，真正回写数据集）/ 忽略，全程留痕。
+  async function decideRepair(
+    patchId: string,
+    decision: "apply" | "dismiss",
+    afterValue?: string,
+  ) {
+    setPolicyBusy(true);
+    try {
+      const res = await fetch(`/api/workspace/repairs/${patchId}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision,
+          after_value: afterValue,
+          reviewer: "价格治理审核员",
+        }),
+      });
+      const j = await res.json();
+      setPolicyMsg(j.message ?? "");
+      await Promise.all([refreshSnapshot(), refreshPolicy()]);
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
+  async function applyAllRepairs(patchIds: string[], valueById: Record<string, string>) {
+    setPolicyBusy(true);
+    try {
+      let applied = 0;
+      for (const pid of patchIds) {
+        const res = await fetch(`/api/workspace/repairs/${pid}/decision`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision: "apply",
+            after_value: valueById[pid],
+            reviewer: "价格治理审核员",
+          }),
+        });
+        const j = await res.json();
+        if (j.ok) applied += 1;
+      }
+      setPolicyMsg(`已批量采纳 ${applied} 条修复并回写数据集，重跑核查即按修复后数据。`);
+      await Promise.all([refreshSnapshot(), refreshPolicy()]);
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
+  // 内网政策文件上传：PDF/CSV/XLSX → artifact 留痕；CSV 自动解析结构化事实建议。
+  async function uploadPolicyFile(file: File) {
+    setPolicyBusy(true);
+    setPolicyMsg(`正在接收政策文件「${file.name}」…`);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/workspace/policy-upload", { method: "POST", body: fd });
+      const j = await res.json();
+      setPolicyMsg(j.message ?? "上传失败。");
+      if (j.ok) setActiveTab("fact");
+      await refreshPolicy();
+    } catch {
+      setPolicyMsg("上传失败：网络或文件异常。");
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
+  // 按 CSV 解析结果批量确认结构化事实（一次人审确认 N 条 policy_fact 生效）。
+  async function confirmArtifactFacts(artifactId: string, facts: SuggestedFact[]) {
+    setPolicyBusy(true);
+    try {
+      const res = await fetch(`/api/workspace/policy-artifacts/${artifactId}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ facts, reviewer: "政策事实审核员" }),
+      });
+      const j = await res.json();
+      setPolicyMsg(j.message ?? "");
+      await refreshPolicy();
     } finally {
       setPolicyBusy(false);
     }
@@ -696,6 +826,18 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
           </div>
         </div>
         <div className="workspace-band-right">
+          {dataset?.release_id && (
+            <a
+              className="report-link mono"
+              href={`/release/${dataset.release_id}`}
+              target="_blank"
+              rel="noreferrer"
+              data-release-link
+              title={`打开批次闸门页 ${dataset.release_id}：逐行问题、放行规则、审批与结果留痕`}
+            >
+              <ExternalLinkIcon /> 批次详情
+            </a>
+          )}
           {thread?.id ? (
             <a
               className="report-link mono"
@@ -765,10 +907,34 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
                   <Fragment key={m.id}>
                     {i === stepsBeforeIndex && <AgentStepsMessage events={events} running={false} />}
                     <MessageBubble message={m} />
+                    {i === proposalAfterIndex && (
+                      <ProposalCardsMessage
+                        key={`proposal-${latestRunId}`}
+                        repairs={repairs}
+                        tasks={tasks}
+                        busy={policyBusy}
+                        onDecideRepair={decideRepair}
+                        onApplyAll={applyAllRepairs}
+                        onDecideTask={decideTask}
+                      />
+                    )}
                   </Fragment>
                 ))}
                 {stepsBeforeIndex === messages.length && !isRunning && (
-                  <AgentStepsMessage events={events} running={false} />
+                  <>
+                    <AgentStepsMessage events={events} running={false} />
+                    {hasProposalCard && (
+                      <ProposalCardsMessage
+                        key={`proposal-tail-${latestRunId}`}
+                        repairs={repairs}
+                        tasks={tasks}
+                        busy={policyBusy}
+                        onDecideRepair={decideRepair}
+                        onApplyAll={applyAllRepairs}
+                        onDecideTask={decideTask}
+                      />
+                    )}
+                  </>
                 )}
                 {/* run 进行中：在时间线末尾流式展示执行阶段 */}
                 {isRunning && <AgentStepsMessage events={[]} running />}
@@ -874,6 +1040,8 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             onSyncPolicy={syncPolicy}
             onDemoPolicyUpdate={demoPolicyUpdate}
             onConfirmArtifact={confirmArtifact}
+            onConfirmArtifactFacts={confirmArtifactFacts}
+            onUploadPolicy={uploadPolicyFile}
           />
         </aside>
       </section>
@@ -954,6 +1122,18 @@ function SourcePanel({
           <span className="mono">
             {dataset.row_count} 行 · {safeArray(dataset.columns_json).slice(0, 3).join("、")}
           </span>
+          {dataset.release_id && (
+            <a
+              className="dataset-release-link mono"
+              href={`/release/${dataset.release_id}`}
+              target="_blank"
+              rel="noreferrer"
+              data-dataset-release-link
+              title="打开该批次的闸门页（逐行问题、放行规则、审批留痕）"
+            >
+              批次 {dataset.release_id.replace("REL-", "")} <ExternalLinkIcon />
+            </a>
+          )}
         </div>
       )}
     </section>
@@ -982,6 +1162,8 @@ function BusinessObjectsPanel({
   onSyncPolicy,
   onDemoPolicyUpdate,
   onConfirmArtifact,
+  onConfirmArtifactFacts,
+  onUploadPolicy,
 }: {
   mappings: FieldMapping[];
   repairs: RepairPatch[];
@@ -1004,6 +1186,8 @@ function BusinessObjectsPanel({
   onSyncPolicy: () => Promise<void>;
   onDemoPolicyUpdate: () => Promise<void>;
   onConfirmArtifact: (artifactId: string, itemCode: string, collectivePrice: number | null) => Promise<void>;
+  onConfirmArtifactFacts: (artifactId: string, facts: SuggestedFact[]) => Promise<void>;
+  onUploadPolicy: (file: File) => Promise<void>;
 }) {
   void running;
   void openDrifts;
@@ -1086,6 +1270,8 @@ function BusinessObjectsPanel({
             onSync={onSyncPolicy}
             onDemoUpdate={onDemoPolicyUpdate}
             onConfirm={onConfirmArtifact}
+            onConfirmFacts={onConfirmArtifactFacts}
+            onUpload={onUploadPolicy}
           />
         )}
         {activeTab === "repair" && (
@@ -1201,6 +1387,248 @@ function TaskReviewTab({
         );
       })}
     </div>
+  );
+}
+
+// ===== 会话流提案卡：agent 的修复/处置提案直接跟在回答后面 =====
+// 修复值可先编辑再采纳（采纳 = 真正回写数据集行）；处置任务可当场批准/驳回。
+// 不用去右侧面板点来点去——右侧继续承担"全量清单/留痕"角色。
+const PENDING_REPAIR_STATUSES = new Set(["proposed", "needs_user"]);
+
+function ProposalCardsMessage({
+  repairs,
+  tasks,
+  busy,
+  onDecideRepair,
+  onApplyAll,
+  onDecideTask,
+}: {
+  repairs: RepairPatch[];
+  tasks: WorkspaceSnapshot["workflowTasks"];
+  busy: boolean;
+  onDecideRepair: (patchId: string, decision: "apply" | "dismiss", afterValue?: string) => Promise<void>;
+  onApplyAll: (patchIds: string[], valueById: Record<string, string>) => Promise<void>;
+  onDecideTask: (taskId: string, decision: "approve" | "reject", finalAction: string) => Promise<void>;
+}) {
+  const [valueById, setValueById] = useState<Record<string, string>>({});
+  const [taskActionById, setTaskActionById] = useState<Record<string, string>>({});
+
+  const pendingRepairs = repairs.filter((r) => PENDING_REPAIR_STATUSES.has(r.status));
+  const pendingTasks = tasks.filter((t) => !DECIDED_TASK_STATUSES.has(t.status));
+
+  // 首次渲染时固定行序（待办在前），之后保持稳定：决策后原地变 ✓/已忽略，行不跳走。
+  const [repairOrder] = useState(() => {
+    const pending = repairs.filter((r) => PENDING_REPAIR_STATUSES.has(r.status)).map((r) => r.id);
+    const decided = repairs.filter((r) => !PENDING_REPAIR_STATUSES.has(r.status)).map((r) => r.id);
+    return [...pending, ...decided].slice(0, 8);
+  });
+  const [taskOrder] = useState(() => {
+    const pending = tasks.filter((t) => !DECIDED_TASK_STATUSES.has(t.status)).map((t) => t.id);
+    const decided = tasks.filter((t) => DECIDED_TASK_STATUSES.has(t.status)).map((t) => t.id);
+    return [...pending, ...decided].slice(0, 6);
+  });
+  const visibleRepairs = repairOrder
+    .map((id) => repairs.find((r) => r.id === id))
+    .filter((r): r is RepairPatch => Boolean(r));
+  const visibleTasks = taskOrder
+    .map((id) => tasks.find((t) => t.id === id))
+    .filter((t): t is WorkspaceSnapshot["workflowTasks"][number] => Boolean(t));
+  const valueOf = (r: RepairPatch) => valueById[r.id] ?? r.after_value;
+
+  return (
+    <article className="message-bubble assistant proposal-message" data-proposal-card>
+      <div className="message-role">
+        <MagicWandIcon /> 价序的处置提案
+        <span className="proposal-hint">修复值可先改再采纳 · 决策全程留痕</span>
+      </div>
+      <div className="message-body">
+        {repairs.length > 0 && (
+          <section className="proposal-section" data-proposal-repairs>
+            <header className="proposal-section-head">
+              <strong>
+                数据修复（待采纳 {pendingRepairs.length} / 共 {repairs.length}）
+              </strong>
+              {pendingRepairs.length > 1 && (
+                <button
+                  className="mini-btn approve"
+                  data-apply-all-repairs
+                  disabled={busy}
+                  onClick={() =>
+                    onApplyAll(
+                      pendingRepairs.map((r) => r.id),
+                      Object.fromEntries(pendingRepairs.map((r) => [r.id, valueOf(r)])),
+                    )
+                  }
+                >
+                  一键采纳 {pendingRepairs.length} 条
+                </button>
+              )}
+            </header>
+            {visibleRepairs.map((r) => {
+              const pending = PENDING_REPAIR_STATUSES.has(r.status);
+              return (
+                <div
+                  key={r.id}
+                  className={`proposal-row${pending ? "" : " decided"}`}
+                  data-repair-proposal
+                  data-repair-status={r.status}
+                >
+                  <div className="proposal-row-main">
+                    <span className="proposal-loc mono">
+                      第 {r.row_index + 1} 行 · {REPAIR_FIELD_LABELS[r.field] ?? r.field}
+                    </span>
+                    <span className="proposal-before mono">{r.before_value || "（空）"}</span>
+                    <ArrowRightIcon className="proposal-arrow" aria-hidden />
+                    {pending ? (
+                      <input
+                        className="proposal-input mono"
+                        value={valueOf(r)}
+                        disabled={busy}
+                        data-repair-input
+                        onChange={(e) => setValueById((m) => ({ ...m, [r.id]: e.target.value }))}
+                        aria-label="修复值（可编辑）"
+                      />
+                    ) : (
+                      <span className="proposal-after mono">{r.after_value}</span>
+                    )}
+                  </div>
+                  <div className="proposal-row-meta">
+                    <span className="proposal-reason">
+                      {r.reason} · 置信度 {(r.confidence * 100).toFixed(0)}%
+                    </span>
+                    {pending ? (
+                      <span className="proposal-actions">
+                        <button
+                          className="mini-btn approve"
+                          data-repair-apply
+                          disabled={busy}
+                          title="采纳后立即回写数据集该行，重跑核查即按修复后数据"
+                          onClick={() => onDecideRepair(r.id, "apply", valueOf(r))}
+                        >
+                          采纳并回写
+                        </button>
+                        <button
+                          className="mini-btn"
+                          data-repair-dismiss
+                          disabled={busy}
+                          onClick={() => onDecideRepair(r.id, "dismiss")}
+                        >
+                          忽略
+                        </button>
+                      </span>
+                    ) : (
+                      <span className={`proposal-state ${r.status}`}>
+                        {r.status === "applied" ? (
+                          <>
+                            <CheckCircledIcon /> 已回写数据集
+                          </>
+                        ) : (
+                          "已忽略"
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {repairs.length > visibleRepairs.length && (
+              <div className="proposal-more mono">
+                其余 {repairs.length - visibleRepairs.length} 条修复在右侧「数据修复」查看。
+              </div>
+            )}
+          </section>
+        )}
+
+        {tasks.length > 0 && (
+          <section className="proposal-section" data-proposal-tasks>
+            <header className="proposal-section-head">
+              <strong>
+                待批处置（待人审 {pendingTasks.length} / 共 {tasks.length}）
+              </strong>
+            </header>
+            {visibleTasks.map((t) => {
+              const pending = !DECIDED_TASK_STATUSES.has(t.status);
+              const action = taskActionById[t.id] ?? defaultActionFor(t.task_type);
+              return (
+                <div
+                  key={t.id}
+                  className={`proposal-row${pending ? "" : " decided"}`}
+                  data-task-proposal
+                  data-task-status={t.status}
+                >
+                  <div className="proposal-row-main">
+                    <span className="proposal-loc mono">
+                      {t.task_type} · {t.priority}
+                    </span>
+                    <span className="proposal-task-title">
+                      {t.title}：{t.detail}
+                    </span>
+                  </div>
+                  <div className="proposal-row-meta">
+                    {pending ? (
+                      <span className="proposal-actions">
+                        <select
+                          className="task-action-select mono"
+                          value={action}
+                          disabled={busy}
+                          onChange={(e) =>
+                            setTaskActionById((m) => ({ ...m, [t.id]: e.target.value }))
+                          }
+                        >
+                          {FINAL_ACTIONS.map((a) => (
+                            <option key={a} value={a}>
+                              {a}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="mini-btn approve"
+                          data-task-approve
+                          disabled={busy}
+                          onClick={() => onDecideTask(t.id, "approve", action)}
+                        >
+                          批准处置
+                        </button>
+                        <button
+                          className="mini-btn reject"
+                          data-task-reject
+                          disabled={busy}
+                          onClick={() => onDecideTask(t.id, "reject", action)}
+                        >
+                          驳回
+                        </button>
+                      </span>
+                    ) : (
+                      <span
+                        className={`proposal-state ${t.status === "已驳回" ? "dismissed" : "applied"}`}
+                      >
+                        {t.status === "已驳回" ? (
+                          "已驳回"
+                        ) : (
+                          <>
+                            <CheckCircledIcon /> {t.status}
+                            {t.final_action ? ` · ${t.final_action}` : ""}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {tasks.length > visibleTasks.length && (
+              <div className="proposal-more mono">
+                其余 {tasks.length - visibleTasks.length} 条任务在右侧「人审任务」处理。
+              </div>
+            )}
+          </section>
+        )}
+
+        <div className="proposal-foot mono">
+          采纳/批准即时生效并写入审批日志；人审结论会被挖成可复用规则，同类下批自动处置。
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -1351,7 +1779,9 @@ function RuleCandidatesTab({
   );
 }
 
-// ===== 政策事实：baseline 真相源（版本 hash 可追溯）+ 公告 artifact 人审确认 =====
+// ===== 政策事实：baseline 真相源（版本 hash 可追溯）+ 公告/上传文件 人审确认 =====
+// 内网无外网时用「上传政策文件」入口：PDF/CSV/XLSX 留痕入库，CSV 自动解析结构化建议，
+// 确认生效链路与外网抓取完全一致（事实生效必须人审）。
 function PolicyFactsTab({
   facts,
   artifacts,
@@ -1360,6 +1790,8 @@ function PolicyFactsTab({
   onSync,
   onDemoUpdate,
   onConfirm,
+  onConfirmFacts,
+  onUpload,
 }: {
   facts: FactRow[];
   artifacts: ArtifactRow[];
@@ -1368,10 +1800,13 @@ function PolicyFactsTab({
   onSync: () => Promise<void>;
   onDemoUpdate: () => Promise<void>;
   onConfirm: (artifactId: string, itemCode: string, collectivePrice: number | null) => Promise<void>;
+  onConfirmFacts: (artifactId: string, facts: SuggestedFact[]) => Promise<void>;
+  onUpload: (file: File) => Promise<void>;
 }) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [confirmCode, setConfirmCode] = useState("HC-LNS-902");
   const [confirmPrice, setConfirmPrice] = useState("560");
+  const policyFileRef = useRef<HTMLInputElement | null>(null);
   const fetched = artifacts.filter((a) => a.status === "fetched");
 
   return (
@@ -1379,18 +1814,39 @@ function PolicyFactsTab({
       <div
         className="policy-source-line"
         data-policy-source
-        title="政策采集链路：抓公告 → 留痕保存 → 人审确认 → 生效为政策依据。只抓公开公告。"
+        title="政策接入链路：公开公告抓取（外网）或本地文件上传（内网）→ 留痕保存 → 人审确认 → 生效为政策依据。"
       >
         <span className={`src-dot ${ingestion?.status === "succeeded" ? "ok" : ""}`} aria-hidden />
-        <span className="src-name">国家医保局公告 · L0 公开源</span>
+        <span className="src-name">政策接入 · 公开公告 / 内网上传</span>
         <span className="src-meta mono">
           {ingestion
-            ? `上次同步 ${ingestion.finished_at ? ingestion.finished_at.slice(5, 16).replace("T", " ") : "—"} · 解析 ${ingestion.fetched_count} · 新增 ${ingestion.changed_count}`
-            : "尚未同步 · 点「同步公开政策」抓取"}
+            ? `上次接入 ${ingestion.finished_at ? ingestion.finished_at.slice(5, 16).replace("T", " ") : "—"} · 解析 ${ingestion.fetched_count} · 新增 ${ingestion.changed_count}`
+            : "尚未接入 · 上传政策文件或同步公开公告"}
         </span>
       </div>
       <div className="tab-actions">
-        <button className="mini-btn" data-policy-sync onClick={onSync} disabled={busy} title="抓取国家医保局公开公告，人工确认后才作为核价依据">
+        <button
+          className="mini-btn approve"
+          data-policy-upload
+          onClick={() => policyFileRef.current?.click()}
+          disabled={busy}
+          title="内网无外网时的政策入口：上传 PDF/CSV/XLSX 留痕入库；CSV 自动解析结构化价格事实建议，确认后生效"
+        >
+          <UploadIcon /> 上传政策文件
+        </button>
+        <input
+          ref={policyFileRef}
+          data-policy-upload-input
+          type="file"
+          accept=".pdf,.csv,.xlsx,.xls,.docx"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void onUpload(file);
+            event.target.value = "";
+          }}
+        />
+        <button className="mini-btn" data-policy-sync onClick={onSync} disabled={busy} title="外网环境：抓取国家医保局公开公告，人工确认后才作为核价依据">
           同步公开政策
         </button>
         <button className="mini-btn demo" data-demo-policy-update onClick={onDemoUpdate} disabled={busy} title="演示：HC-LNS-902 集采中选价 640→560。真实链路需公告人审确认。">
@@ -1416,55 +1872,96 @@ function PolicyFactsTab({
       )}
 
       <div className="policy-section-title" style={{ marginTop: 8 }}>
-        <FileTextIcon /> 待确认公告（{fetched.length}）
+        <FileTextIcon /> 待确认政策（{fetched.length}）
       </div>
       {fetched.length === 0 ? (
-        <div className="policy-empty">暂无待确认公告。点「同步公开政策」抓取国家医保局公开公告。</div>
+        <div className="policy-empty">
+          暂无待确认政策。内网可直接「上传政策文件」（PDF/CSV/XLSX），外网可「同步公开政策」。
+        </div>
       ) : (
-        fetched.slice(0, 4).map((a) => (
-          <div key={a.id} className="artifact-row" data-artifact-row>
-            <div className="artifact-title">{a.title}</div>
-            <div className="artifact-meta mono">
-              {a.published_at ?? "—"} · hash {a.content_hash.slice(0, 10)} · {a.status}
+        fetched.slice(0, 4).map((a) => {
+          const suggested = suggestedFactsOf(a);
+          return (
+            <div key={a.id} className="artifact-row" data-artifact-row>
+              <div className="artifact-title">
+                {a.url.startsWith("upload://") && (
+                  <span className="artifact-source-chip mono" title="内网本地上传的政策文件">上传</span>
+                )}
+                {a.title}
+              </div>
+              <div className="artifact-meta mono">
+                {a.published_at ?? "—"} · hash {a.content_hash.slice(0, 10)} · {a.artifact_type ?? "html"}
+              </div>
+              {suggested.length > 0 && (
+                <div className="artifact-suggested" data-artifact-suggested>
+                  <div className="artifact-suggested-head mono">
+                    已解析 {suggested.length} 条结构化事实（编码 / 参考价 / 最高价 / 中选价）
+                  </div>
+                  {suggested.slice(0, 3).map((f) => (
+                    <div key={f.item_code} className="artifact-suggested-row mono">
+                      {f.item_code} · 参考 {f.reference_price ?? "—"} · 最高 {f.ceiling_price ?? "—"} · 中选 {f.collective_price ?? "—"}
+                    </div>
+                  ))}
+                  {suggested.length > 3 && (
+                    <div className="artifact-suggested-row mono">… 其余 {suggested.length - 3} 条确认时一并生效</div>
+                  )}
+                </div>
+              )}
+              {suggested.length > 0 ? (
+                <div className="rc-actions">
+                  <button
+                    className="mini-btn approve"
+                    data-artifact-confirm-facts
+                    disabled={busy}
+                    onClick={() => onConfirmFacts(a.id, suggested)}
+                    title="一次人审确认，解析出的结构化事实全部生效为核价依据（source_hash 可追溯）"
+                  >
+                    人审确认 {suggested.length} 条 → 核价依据
+                  </button>
+                  <button className="mini-btn" data-artifact-open-confirm disabled={busy} onClick={() => setConfirmingId(a.id)}>
+                    改为手工录入
+                  </button>
+                </div>
+              ) : confirmingId !== a.id ? (
+                <div className="rc-actions">
+                  <button className="mini-btn" data-artifact-open-confirm disabled={busy} onClick={() => setConfirmingId(a.id)}>
+                    人审确认 → 核价依据
+                  </button>
+                </div>
+              ) : null}
+              {confirmingId === a.id && (
+                <div className="artifact-confirm-form" data-artifact-confirm>
+                  <input
+                    className="mono"
+                    value={confirmCode}
+                    onChange={(e) => setConfirmCode(e.target.value)}
+                    placeholder="项目编码"
+                    aria-label="医保项目编码"
+                  />
+                  <input
+                    className="mono"
+                    value={confirmPrice}
+                    onChange={(e) => setConfirmPrice(e.target.value)}
+                    placeholder="中选价"
+                    aria-label="集采中选价"
+                  />
+                  <button
+                    className="mini-btn approve"
+                    data-artifact-confirm-submit
+                    disabled={busy || !confirmCode.trim()}
+                    onClick={() => {
+                      const price = Number(confirmPrice);
+                      void onConfirm(a.id, confirmCode.trim(), Number.isFinite(price) ? price : null);
+                      setConfirmingId(null);
+                    }}
+                  >
+                    确认为核价依据
+                  </button>
+                </div>
+              )}
             </div>
-            {confirmingId === a.id ? (
-              <div className="artifact-confirm-form" data-artifact-confirm>
-                <input
-                  className="mono"
-                  value={confirmCode}
-                  onChange={(e) => setConfirmCode(e.target.value)}
-                  placeholder="项目编码"
-                  aria-label="医保项目编码"
-                />
-                <input
-                  className="mono"
-                  value={confirmPrice}
-                  onChange={(e) => setConfirmPrice(e.target.value)}
-                  placeholder="中选价"
-                  aria-label="集采中选价"
-                />
-                <button
-                  className="mini-btn approve"
-                  data-artifact-confirm-submit
-                  disabled={busy || !confirmCode.trim()}
-                  onClick={() => {
-                    const price = Number(confirmPrice);
-                    void onConfirm(a.id, confirmCode.trim(), Number.isFinite(price) ? price : null);
-                    setConfirmingId(null);
-                  }}
-                >
-                  确认为核价依据
-                </button>
-              </div>
-            ) : (
-              <div className="rc-actions">
-                <button className="mini-btn" data-artifact-open-confirm disabled={busy} onClick={() => setConfirmingId(a.id)}>
-                  人审确认 → 核价依据
-                </button>
-              </div>
-            )}
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

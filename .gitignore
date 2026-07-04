@@ -22,6 +22,14 @@ next-env.d.ts
 .env*.local
 .dev.vars
 
+# offline deployment bundles (built by scripts/package_offline_win.mjs)
+/dist-offline/
+
+# local build/deploy caches and demo intermediates
+/.open-next/
+/.wrangler/
+/artifacts/
+
 # internal hackathon-workflow artifacts (not for public repo)
 /.hunter/
 /.impeccable/

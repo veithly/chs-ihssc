@@ -98,6 +98,12 @@ export const ISSUE_INFO: Record<string, IssueInfo> = {
     next: "确认超限后督促企业调整挂网价至差比价上限内，或按申诉材料修正代表品口径。",
     kind: "核验",
   },
+  price_below_floor: {
+    title: "参考价异常低价",
+    recommend: "进入需核验，核实低于参考价 50% 的报价真实性（集采降价/赠送政策为正当原因）。",
+    next: "排除低价恶性竞争与「降价死」断供风险后确认落地，异常的转机构核实。",
+    kind: "核验",
+  },
 };
 
 export function infoFor(type: string): IssueInfo {
