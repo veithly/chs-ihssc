@@ -74,6 +74,30 @@ export const ISSUE_INFO: Record<string, IssueInfo> = {
     next: "补齐字段后重新运行价序。",
     kind: "处置",
   },
+  retail_over_1p3x: {
+    title: "机构价超零售集中价 1.3 倍",
+    recommend: "冻结该价格记录，核对零售药店/网售平台集中价采集口径与机构执行价。",
+    next: "要求机构说明价差原因，确认后启动调价或纳入价格约谈。",
+    kind: "处置",
+  },
+  retail_price_no_code: {
+    title: "零售渠道价无编码（名称已对应）",
+    recommend: "审核名称→医保编码对应提案，人工确认后回写并纳入多渠道比价。",
+    next: "确认回写后，该零售价进入 1.3 倍比价基准。",
+    kind: "纠错",
+  },
+  retail_price_unmatched: {
+    title: "零售渠道价无编码（名称未对应）",
+    recommend: "进入需核验，由目录维护员人工检索对应编码。",
+    next: "对应成功后纳入比价；无法对应则退回数据源。",
+    kind: "核验",
+  },
+  spec_over_ratio: {
+    title: "差比价折算超限",
+    recommend: "进入需核验，按 2452号包装数量差比价（K=1.95^log₂X）核对折算口径。",
+    next: "确认超限后督促企业调整挂网价至差比价上限内，或按申诉材料修正代表品口径。",
+    kind: "核验",
+  },
 };
 
 export function infoFor(type: string): IssueInfo {

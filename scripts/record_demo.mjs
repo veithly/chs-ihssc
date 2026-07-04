@@ -61,11 +61,12 @@ const CAPTION_TEXT = {
   s1: "政策变了，存量执行价还合不合规，价序来管",
   s2: "政策跟不住 · 审批负担重，一线的两句原话",
   s3: "首页一个入口：核完并闭环处置这批执行价异常",
-  demo1: "真实模型核价 · 政策版本指纹可对账 · 拿不准转人审",
+  demo1: "真实模型核价 · 2452号差比价折算 · 拿不准转人审",
   demo2: "真实抓取医保局公告 · 人审确认 640→560 · 漂移检出",
   demo3: "人审选处置动作，写进不可变决策日志",
   demo4: "人审反馈挖掘规则 · dry-run 影响面 · 人工激活",
   demo5: "命中规则自动处置，敏感项永远人审",
+  demo6: "批次闸门：苏医保发64号红黄分档 · 每条异常带文号出证",
   s5: "六类业务对象落 SQLite，效能实时可对账",
   s6a: "模型出计划，服务端管状态，每步可回放",
   s6b: "红线：发函、通报、违规认定必须人点头",
@@ -73,11 +74,12 @@ const CAPTION_TEXT = {
 };
 // Short on-footage pointers during the demo (one per demo narration segment).
 const CALLOUT_TEXT = {
-  demo1: "真实 run · 政策版本指纹",
+  demo1: "真实 run · 差比价折算 · 政策版本指纹",
   demo2: "政策同步 → 公告人审确认 → 漂移队列",
   demo3: "批准处置 → 决策日志",
   demo4: "挖掘 → 影响面 → 激活",
   demo5: "自动处置 · 审计留痕",
+  demo6: "红黄预警分档 · 差比价折算超限",
 };
 
 function run(cmd, args, options = {}) {
@@ -339,6 +341,12 @@ async function recordProductFootage() {
 
   // ---- beat b3: human review (2 spikes + 1 drift-review task) ---------------
   mark("b3-review", "action");
+  // Kick the release-gate scan now: beats b3/b4 are provider-free (deterministic
+  // mining/dry-run), so this live-provider call runs in a quiet window and its
+  // result page is ready when the camera reaches beat b6.
+  const releaseScanPromise = api("POST", "/api/agent/release-gate", {
+    releaseId: "REL-2026-0623-07",
+  });
   const spikes2 = await spikeTaskTitles(threadId);
   console.log(`[footage] run2 spike tasks: ${spikes2.map((s) => s.title).join(" | ")}`);
   await openObjectTab("人审任务");
@@ -419,6 +427,37 @@ async function recordProductFootage() {
   await wait(3000);
   await page.mouse.wheel(0, -900);
   await wait(2500);
+
+  // ---- beat b6: whole-batch gate result — 差比价折算 + 64号红黄分档 -----------
+  mark("b6-wait", "wait");
+  let scan = await releaseScanPromise.catch(() => null);
+  if (!scan?.ok) {
+    console.warn(
+      `[footage] release-gate scan degraded (${scan?.error_category ?? "unknown"}) → retrying once`,
+    );
+    scan = await api("POST", "/api/agent/release-gate", { releaseId: "REL-2026-0623-07" });
+  }
+  if (!scan?.ok) {
+    throw new Error(`Release-gate scan failed twice (${scan?.error_category ?? "unknown"}); beat b6 needs a successful run.`);
+  }
+
+  mark("b6-release", "action");
+  await page.goto(`${BASE}/release/REL-2026-0623-07/result`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".dist-grid", { timeout: 20000 });
+  await wait(2000);
+  // Issue-type chips: 差比价折算超限 / 超过最高有效价 land here.
+  await glance(page.locator(".result-issue-badges"));
+  await wait(1800);
+  const affectedTable = page.locator(".batch-scroll").first();
+  await affectedTable.scrollIntoViewIfNeeded(QUICK).catch(() => {});
+  await wait(1300);
+  // 苏医保发〔2021〕64号分档徽标：黄色预警 → 红色预警★★★（10倍以上，停采档）。
+  await glance(page.locator(".batch-table tr", { hasText: "红色预警" }).first());
+  await wait(2400);
+  await glance(page.locator(".batch-table tr", { hasText: "差比价折算超限" }).first());
+  await wait(2400);
+  await page.mouse.wheel(0, -500);
+  await wait(1600);
 
   mark("end", "end");
   await ctx.close();
@@ -763,13 +802,15 @@ function planDemoRetime(beats, segDur, LEAD, GAP, TAIL) {
     demo3: ["b3-review"],
     demo4: ["b4-rules"],
     demo5: ["b5-wait", "b5-auto"],
+    demo6: ["b6-wait", "b6-release"],
   };
   const targets = {
     demo1: LEAD + (segDur.demo1 || 0) + GAP,
     demo2: (segDur.demo2 || 0) + GAP,
     demo3: (segDur.demo3 || 0) + GAP,
     demo4: (segDur.demo4 || 0) + GAP,
-    demo5: (segDur.demo5 || 0) + TAIL,
+    demo5: (segDur.demo5 || 0) + GAP,
+    demo6: (segDur.demo6 || 0) + TAIL,
   };
   const WAIT_MIN = 2.2;
   const plan = [];
@@ -820,7 +861,8 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
   const s3Duration = sceneDur("s3");
 
   const demoStart = s3Start + s3Duration;
-  const demoDuration = LEAD + sum("demo1", "demo2", "demo3", "demo4", "demo5") + 4 * SCENE_GAP + TAIL;
+  const demoDuration =
+    LEAD + sum("demo1", "demo2", "demo3", "demo4", "demo5", "demo6") + 5 * SCENE_GAP + TAIL;
 
   const resultStart = demoStart + demoDuration;
   const resultDuration = sceneDur("s5");
@@ -836,7 +878,7 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
   const anchors = {
     s1: s1Start + LEAD, s2: s2Start + LEAD, s3: s3Start + LEAD,
     demo1: demoStart + LEAD, demo2: demoStart + LEAD, demo3: demoStart + LEAD,
-    demo4: demoStart + LEAD, demo5: demoStart + LEAD,
+    demo4: demoStart + LEAD, demo5: demoStart + LEAD, demo6: demoStart + LEAD,
     s5: resultStart + LEAD, s6a: mechanismStart + LEAD, s6b: mechanismStart + LEAD,
     s7: closeStart + LEAD,
   };
@@ -1267,7 +1309,7 @@ function writeProjectFiles({ demoVideo, demoBeats, narrationSegments, narration 
       <div id="demo-bg" class="demo-stage clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="4"></div>
       <div id="demo-chrome" class="demo-chrome clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="5">
         <span class="dot"></span>
-        <span>real browser demo · /workspace · 三次真实 live-provider run · 政策同步真实抓取</span>
+        <span>real browser demo · /workspace + 批次闸门 · 四次真实 live-provider run · 政策同步真实抓取</span>
       </div>
       <video id="demo-video" class="demo-video clip" data-start="${demoStart}" data-duration="${demoDuration}" data-track-index="6" src="assets/demo-footage-fit.mp4" muted playsinline></video>
       ${callouts}
@@ -1476,11 +1518,38 @@ ${captionTweens}
     rawDuration,
     narrationSegments,
     audioFinal,
+    s2Start,
+    s3Start,
     demoStart,
     resultStart,
     mechanismStart,
     closeStart,
   };
+}
+
+// Inspect samples must dodge the six 0.74s wipe transitions: the wipe panel
+// intentionally covers the incoming scene, and a sample inside that window
+// reports the covered text as an occlusion error. Sampling fixed mid-scene
+// fractions keeps the full layout audit active on every real frame.
+function inspectSampleTimes(meta) {
+  const scenes = [
+    [0, meta.s2Start],
+    [meta.s2Start, meta.s3Start],
+    [meta.s3Start, meta.demoStart],
+    [meta.resultStart, meta.mechanismStart],
+    [meta.mechanismStart, meta.closeStart],
+    [meta.closeStart, meta.total - 1],
+  ];
+  const times = [];
+  for (const [a, b] of scenes) {
+    const span = b - a;
+    times.push(a + span * 0.35, a + span * 0.75);
+  }
+  const demoSpan = meta.resultStart - meta.demoStart;
+  for (const f of [0.08, 0.28, 0.48, 0.68, 0.88]) {
+    times.push(meta.demoStart + demoSpan * f);
+  }
+  return times.sort((x, y) => x - y).map((t) => t.toFixed(2)).join(",");
 }
 
 function renderVideo(meta) {
@@ -1495,7 +1564,9 @@ function renderVideo(meta) {
     run("npx", [...HF, "lint", PROJECT]);
     run("npx", [...HF, "validate", PROJECT]);
 
-    const inspect = spawnSync("npx", [...HF, "inspect", PROJECT, "--samples", "14", "--json"], {
+    const sampleTimes = inspectSampleTimes(meta);
+    console.log(`[inspect] sampling at ${sampleTimes}`);
+    const inspect = spawnSync("npx", [...HF, "inspect", PROJECT, "--at", sampleTimes, "--json"], {
       encoding: "utf8",
     });
     writeFileSync(join(QA, "hyperframes-inspect.json"), inspect.stdout || inspect.stderr || "", "utf8");
@@ -1645,7 +1716,7 @@ function qaVideo(videoPath, meta) {
     tts_voice: TTS_VOICE,
     hyperframes_project: relative(ROOT, PROJECT),
     contact_sheet: relative(ROOT, join(QA, "contact-sheet.jpg")),
-    real_browser_path: `${BASE}/ → /workspace（政策变更→漂移→人审→规则激活→自动处置）`,
+    real_browser_path: `${BASE}/ → /workspace（政策变更→漂移→人审→规则激活→自动处置）→ /release/REL-2026-0623-07/result（差比价+64号红黄分档）`,
     demo_start_s: meta.demoStart,
     result_start_s: Number(meta.resultStart.toFixed(2)),
     mechanism_start_s: Number(meta.mechanismStart.toFixed(2)),

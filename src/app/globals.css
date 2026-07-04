@@ -1492,6 +1492,19 @@ a {
   font-size: 11.5px;
 }
 
+.sample-csv-link {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--gate-accent);
+  text-decoration: none;
+  line-height: 1.5;
+}
+
+.sample-csv-link:hover {
+  text-decoration: underline;
+}
+
 .source-card-grid {
   display: grid;
   grid-template-columns: 1fr;

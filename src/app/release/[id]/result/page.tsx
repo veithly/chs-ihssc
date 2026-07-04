@@ -17,6 +17,7 @@ import {
   getRows,
 } from "@/lib/repo";
 import { infoFor } from "@/lib/issueInfo";
+import { CODE_ALIASES, PRICE_CATALOG, warningTierFor } from "@/lib/fixtures";
 import type { AgentPlan, BatchStats, ReplayEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -34,6 +35,10 @@ const ISSUE_TYPE_LABEL: Record<string, string> = {
   procurement_channel_unknown: "未知采购渠道",
   price_spike: "参考价涨幅异常",
   schema_field_missing: "字段缺失",
+  retail_over_1p3x: "超零售集中价1.3倍",
+  retail_price_no_code: "零售价无编码可对应",
+  retail_price_unmatched: "零售价无编码未对应",
+  spec_over_ratio: "差比价折算超限",
 };
 
 export default async function ResultPage({
@@ -214,6 +219,15 @@ function ResultBody({
                     const info = infoFor(iss.type);
                     const kindColor =
                       info.kind === "处置" ? "red" : info.kind === "核验" ? "amber" : info.kind === "纠错" ? "violet" : "green";
+                    // 苏医保发〔2021〕64号红黄预警分档徽标（超最高有效价行按倍数分档）
+                    const tier = (() => {
+                      if (iss.type !== "price_over_ceiling" || !r) return null;
+                      const code = PRICE_CATALOG[r.item_code] ? r.item_code : CODE_ALIASES[r.item_code];
+                      const item = code ? PRICE_CATALOG[code] : null;
+                      const price = Number(String(r.unit_price).replace(/[,\s元]/g, ""));
+                      if (!item || !Number.isFinite(price) || price <= 0) return null;
+                      return warningTierFor(price / item.ceilingPrice);
+                    })();
                     return (
                       <tr key={iss.id}>
                         <td className="mono" style={{ color: "var(--gate-ink-soft)" }}>{iss.row_index + 1}</td>
@@ -236,6 +250,18 @@ function ResultBody({
                           <Badge variant="soft" color={kindColor} size="1" radius="full">
                             {ISSUE_TYPE_LABEL[iss.type] ?? info.title}
                           </Badge>
+                          {tier && (
+                            <Badge
+                              variant="solid"
+                              color={tier.color === "red" ? "red" : "amber"}
+                              size="1"
+                              radius="full"
+                              title={`苏医保发〔2021〕64号：${tier.action}`}
+                              style={{ marginLeft: 6 }}
+                            >
+                              {tier.label}
+                            </Badge>
+                          )}
                         </td>
                         <td className="mono" style={{ color: "var(--gate-ink-soft)" }}>
                           {iss.confidence.toFixed(2)}

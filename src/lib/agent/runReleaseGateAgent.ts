@@ -105,6 +105,8 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
       "单价不得超过最高有效价或集采中选价容忍阈值",
       "集采中选价必须在已落地区域内落地",
       "参考价涨幅超过阈值需核验",
+      "机构价不得高于零售「即时达」集中价 1.3 倍",
+      "同通用名不同包装按差比价折算后比价（2452号）",
     ],
   };
 
@@ -209,6 +211,9 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   let collectiveNotLanded = 0;
   let collectiveOverrun = 0;
   let channelUnknown = 0;
+  let retailOver = 0;
+  let retailNoCode = 0;
+  let specOverRatio = 0;
   let dateAnomaly = 0;
   let corrections = 0;
   let quarantines = 0;
@@ -245,7 +250,8 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     // Finding-level tallies. A blank required field is a schema issue, not a
     // catalog miss, so catalog counting is gated on schema passing.
     if (!findings.schema.ok) schemaMiss += 1;
-    else if (!findings.standard.valid) {
+    else if (!findings.standard.valid && !(findings.retail.isRetailChannel && findings.retail.noCode)) {
+      // 零售无编码行不算目录未命中——它走 R6 名称对应，由 retail 计数器单独统计
       if (findings.standard.correctable) catalogCorrectable += 1;
       else catalogMiss += 1;
     }
@@ -254,6 +260,9 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     if (findings.collective.notLanded) collectiveNotLanded += 1;
     if (findings.collective.overCollective) collectiveOverrun += 1;
     if (!findings.collective.channelKnown) channelUnknown += 1;
+    if (findings.retail.over) retailOver += 1;
+    if (findings.retail.isRetailChannel && findings.retail.noCode) retailNoCode += 1;
+    if (findings.specRatio.over) specOverRatio += 1;
     if (findings.anomaly.anomaly) dateAnomaly += 1;
 
     byState[verdict.state] = (byState[verdict.state] ?? 0) + 1;
@@ -292,7 +301,10 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
         before_value: row.item_code,
         after_value: verdict.suggestion ?? "",
         source_dictionary: manifest?.code_dictionary_version ?? "price-catalog",
-        rationale: `价格目录高置信别名映射：${row.item_code} → ${verdict.suggestion}`,
+        rationale:
+          verdict.issueType === "retail_price_no_code"
+            ? `零售渠道无编码，按名称对应目录：「${row.item_name}」 → ${verdict.suggestion}（R6，回写需人工确认）`
+            : `价格目录高置信别名映射：${row.item_code} → ${verdict.suggestion}`,
         confidence: verdict.confidence,
         status: "pending",
         created_at: createdIso,
@@ -336,7 +348,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     tool(
       "schema_mapper",
       "字段标化",
-      `字段=6 × ${scanned} 行`,
+      `必填字段 × ${scanned} 行（零售渠道 item_code 豁免）`,
       `字段完整 ${scanned - schemaMiss} / 缺失 ${schemaMiss}`,
       schemaMiss === 0,
       schemaMiss ? "schema_field_missing" : undefined,
@@ -376,6 +388,22 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
             : undefined,
     ),
     tool(
+      "retail_price_comparator",
+      "零售集中价比对",
+      `retail_price×1.3 与名称对应 × ${scanned} 行`,
+      `超 1.3 倍上限 ${retailOver} / 零售无编码待对应 ${retailNoCode} / 其余通过`,
+      retailOver + retailNoCode === 0,
+      retailOver ? "retail_over_1p3x" : retailNoCode ? "retail_price_no_code" : undefined,
+    ),
+    tool(
+      "spec_ratio_comparator",
+      "差比价折算",
+      `K=1.95^log₂X 折算可比价 × ${scanned} 行（2452号）`,
+      `差比价超限 ${specOverRatio} / 其余合规或不适用`,
+      specOverRatio === 0,
+      specOverRatio ? "spec_over_ratio" : undefined,
+    ),
+    tool(
       "anomaly_profiler",
       "异常画像",
       `price_date × ${scanned} 行（监测日 ${release.release_date}）`,
@@ -395,7 +423,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   replay.push({
     phase: "tools",
     title: "tools 工具调用",
-    detail: `5 个确定性工具 × ${scanned} 行 = ${scanned * VALIDATORS.length} 次校验；命中问题 ${issues} 处（异常处置 ${byState["异常处置"]} · 需核验 ${byState["需核验"]} · 纠错候选 ${byState["纠错候选"]}）。`,
+    detail: `${VALIDATORS.length} 个确定性工具 × ${scanned} 行 = ${scanned * VALIDATORS.length} 次校验；命中问题 ${issues} 处（异常处置 ${byState["异常处置"]} · 需核验 ${byState["需核验"]} · 纠错候选 ${byState["纠错候选"]}）。`,
     at: tNow(),
     ok: true,
   });

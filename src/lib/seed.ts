@@ -301,6 +301,69 @@ function seedPolicyFacts(db: ReturnType<typeof getDb>, created: string): void {
       created_at: created,
     });
   }
+
+  seedOfflinePolicyArtifacts(db, created);
+}
+
+// 断网演示预置：赛前把 L0 公开公告副本随部署包带入（policy_artifact, status=fetched）。
+// 内网无法真实抓取时，"公告 → 人审确认 → 政策事实版本化 → 漂移检出"的完整链路依然可演。
+// 与真实抓取共用同一张表、同一确认 API——预置的只是"采集结果"，不是另一条代码路径。
+function seedOfflinePolicyArtifacts(db: ReturnType<typeof getDb>, created: string): void {
+  const runId = "ING-OFFLINE-BUNDLE-01";
+  db.prepare(
+    `INSERT INTO ingestion_run
+     (id, source_id, trigger_type, status, started_at, finished_at, fetched_count, changed_count, parser_version, error_json, actor)
+     VALUES (:id, 'PS-NHSA-POLICY-001', 'offline_bundle', 'succeeded', :t, :t, 3, 3, 'offline-bundle-v1', NULL, 'seed-offline-bundle')`,
+  ).run({ id: runId, t: created });
+
+  const insArtifact = db.prepare(
+    `INSERT INTO policy_artifact
+     (id, source_id, url, title, published_at, content_hash, artifact_type, parser_version, status, raw_meta_json, ingestion_run_id, created_at)
+     VALUES (:id, 'PS-NHSA-POLICY-001', :url, :title, :published_at, :content_hash, 'html', 'offline-bundle-v1', 'fetched', :raw_meta_json, :run_id, :created_at)`,
+  );
+
+  const artifacts = [
+    {
+      id: "ART-OFFLINE-001",
+      url: "https://www.nhsa.gov.cn/art/2026/6/18/art_104_20618.html",
+      title: "人工晶体类耗材集采协议期满接续采购中选结果公示（单焦点中选价 560 元/片）",
+      published_at: "2026-06-18",
+      // 演示主线：人审确认 HC-LNS-902 中选价 640→560 → policy_fact 版本演进 → 重跑检出存量执行价漂移
+      documentNo: "医保办函〔2026〕38号",
+    },
+    {
+      id: "ART-OFFLINE-002",
+      url: "https://www.gov.cn/zhengce/zhengceku/202604/content_7065542.htm",
+      title: "国务院办公厅关于健全药品价格形成机制的若干意见（国办发〔2026〕9号）",
+      published_at: "2026-04-14",
+      // 评审口径来源：全渠道比价、价格风险预警与处置等治理规则的政策依据（R6 上位文件）
+      documentNo: "国办发〔2026〕9号",
+    },
+    {
+      id: "ART-OFFLINE-003",
+      url: "https://www.nhsa.gov.cn/art/2026/5/28/art_104_20528.html",
+      title: "关于加强药品挂网价格与零售药店、网售平台价格协同监测的通知",
+      published_at: "2026-05-28",
+      documentNo: "医保价采函〔2026〕21号",
+    },
+  ];
+
+  for (const a of artifacts) {
+    insArtifact.run({
+      id: a.id,
+      url: a.url,
+      title: a.title,
+      published_at: a.published_at,
+      content_hash: createHash("sha256").update(a.url + a.title + a.published_at).digest("hex").slice(0, 16),
+      raw_meta_json: JSON.stringify({
+        documentNo: a.documentNo,
+        offline_bundle: true,
+        note: "赛前预置的公开公告副本（内网断网环境演示用），确认链路与真实抓取一致。",
+      }),
+      run_id: runId,
+      created_at: created,
+    });
+  }
 }
 
 export function ensureSeeded(): void {

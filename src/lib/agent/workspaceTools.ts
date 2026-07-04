@@ -4,6 +4,7 @@ import {
   PRICE_CATALOG,
   PROCUREMENT_CHANNELS,
   REGION_OPTIONS,
+  packRatioContextFor,
 } from "../fixtures";
 import { classifyRow, type CandidateRow } from "./tools";
 
@@ -206,6 +207,10 @@ function institutionFor(row: WorkspaceRow): string {
 
 function nextActionFor(issueType: string): string {
   if (issueType === "item_code_correctable") return "转目录维护确认，确认后回写标准编码。";
+  if (issueType === "retail_over_1p3x") return "生成零售比价核实口径，要求机构说明与零售集中价的价差。";
+  if (issueType === "retail_price_no_code") return "人工确认名称↔编码对应后回写，该零售价纳入比价基准。";
+  if (issueType === "retail_price_unmatched") return "转目录维护人工检索编码，对应不上前不进入比价结论。";
+  if (issueType === "spec_over_ratio") return "按 2452号差比价折算口径核验，确认后督促企业调价至上限内。";
   if (issueType.includes("collective")) return "生成集采落地催办口径，交集采落地专班复核。";
   if (issueType.includes("price")) return "生成机构核实口径，要求补充执行价凭证。";
   if (issueType.includes("schema") || issueType.includes("date")) return "先发起数据治理确认，补齐来源口径后再核价。";
@@ -215,9 +220,11 @@ function nextActionFor(issueType: string): string {
 
 function taskStatusFor(issueType: string): string {
   if (issueType === "item_code_correctable") return "待修复";
+  if (issueType === "retail_price_no_code") return "待修复";
   if (issueType.includes("schema")) return "待字段映射";
   if (issueType.includes("collective")) return "待发起";
-  if (issueType.includes("price")) return "待确认";
+  if (issueType.includes("price") || issueType === "retail_over_1p3x") return "待确认";
+  if (issueType === "spec_over_ratio") return "待确认";
   return "可处置";
 }
 
@@ -328,15 +335,25 @@ export function runWorkspaceTools(
     const priceValues = rows.map((r) => priceFor(r.unit_price)).filter((v): v is number => v !== null);
     const groupDispositions = dispositions.filter((d) => d.group_key === groupKey);
     const status = missingUnit ? "needs_user" : "ready";
+    // 差比价（2452号）：归并组内的非代表品带上折算公式，跨包装规格才可比。
+    const ratioCtx = packRatioContextFor(groupKey);
+    const reasons = [
+      item ? "按医保项目编码归并同品同规。" : "按名称候选归并，需人工确认编码。",
+      rowIndexes.length > 1 ? `共 ${rowIndexes.length} 行可比。` : "单行进入价格口径核验。",
+    ];
+    if (ratioCtx) {
+      reasons.push(
+        `差比价归并「${item?.comparableGroup}」：与代表品「${ratioCtx.repName}」跨包装比价，${ratioCtx.formula}（发改价格〔2011〕2452号）。`,
+      );
+    } else if (item?.isRepresentative) {
+      reasons.push(`差比价归并「${item.comparableGroup}」代表品：组内其他包装按 1.95^log₂X 从本品折算可比价。`);
+    }
     groups.push({
       group_key: groupKey,
       item_name: item?.name || rows[0]?.item_name || groupKey,
       row_indexes: rowIndexes,
       status,
-      reasons: [
-        item ? "按医保项目编码归并同品同规。" : "按名称候选归并，需人工确认编码。",
-        rowIndexes.length > 1 ? `共 ${rowIndexes.length} 行可比。` : "单行进入价格口径核验。",
-      ],
+      reasons,
     });
     conversions.push({
       group_key: groupKey,
@@ -360,6 +377,11 @@ export function runWorkspaceTools(
         observed_max: priceValues.length ? Math.max(...priceValues) : null,
         raw_item_code: rows[0]?.item_code ?? null,
         catalog_matched: Boolean(item),
+        // 差比价口径（2452号）：非代表品给出折算上限，代表品标注组名。
+        comparable_group: item?.comparableGroup ?? null,
+        pack_count: item?.packCount ?? null,
+        spec_ratio_limit: ratioCtx ? Number(ratioCtx.limit.toFixed(2)) : null,
+        spec_ratio_formula: ratioCtx?.formula ?? null,
       },
     });
     evaluations.push({

@@ -813,6 +813,9 @@ function institutionFor(row: DatasetRow): string {
 function leadTypeFor(issueType: string): string {
   if (["collective_not_landed", "collective_price_overrun", "procurement_channel_unknown"].includes(issueType)) return "集采价格落地差异";
   if (["price_over_ceiling", "price_invalid"].includes(issueType)) return "机构执行价异常";
+  if (issueType === "retail_over_1p3x") return "零售比价超限";
+  if (["retail_price_no_code", "retail_price_unmatched"].includes(issueType)) return "零售价待编码对应";
+  if (issueType === "spec_over_ratio") return "差比价折算超限";
   if (issueType === "price_spike") return "参考价涨幅核验";
   if (issueType === "item_code_correctable") return "目录别名待确认";
   if (issueType === "item_catalog_miss") return "目录硬未命中";
@@ -832,11 +835,17 @@ function reasonForIssue(issueType: string): string {
     item_catalog_miss: "编码未命中目录",
     date_anomaly: "价格日期晚于监测日",
     schema_field_missing: "价格字段缺失",
+    retail_over_1p3x: "机构价超零售集中价 1.3 倍",
+    retail_price_no_code: "零售价无编码，名称已对应待确认",
+    retail_price_unmatched: "零售价无编码且名称未对应",
+    spec_over_ratio: "大包装挂网价超差比价折算上限（2452号）",
   };
   return map[issueType] ?? "价格治理规则命中";
 }
 
 function evidenceGapFor(issueType: string): string[] {
+  if (issueType === "spec_over_ratio") return ["代表品与包装数量口径", "差比价折算记录", "企业价格申诉材料"];
+  if (issueType.startsWith("retail_")) return ["零售/网售集中价采集口径", "机构执行价凭证", "名称↔编码对应依据"];
   if (issueType.startsWith("collective_")) return ["省平台落地截图", "医疗机构执行价凭证", "规格/包装单位口径"];
   if (["price_over_ceiling", "price_spike", "price_invalid"].includes(issueType)) return ["HIS 执行价截图", "订单或发票摘要", "政策调价依据"];
   if (issueType.includes("catalog") || issueType.includes("code")) return ["目录维护确认", "标准编码依据"];
@@ -848,14 +857,17 @@ function nextActionFor(issueType: string): string {
   if (["price_over_ceiling", "collective_price_overrun", "item_catalog_miss", "date_anomaly", "schema_field_missing"].includes(issueType)) {
     return "先退回补证，补齐后再决定是否转异常处置。";
   }
-  if (["collective_not_landed", "procurement_channel_unknown", "price_spike"].includes(issueType)) {
+  if (["collective_not_landed", "procurement_channel_unknown", "price_spike", "retail_price_unmatched"].includes(issueType)) {
     return "派核验岗确认落地口径或调价依据。";
   }
-  if (issueType === "item_code_correctable") return "请目录维护员确认别名映射后重跑监测。";
+  if (issueType === "retail_over_1p3x") return "要求机构说明与零售集中价的价差，超限部分启动调价核实。";
+  if (issueType === "spec_over_ratio") return "核验差比价折算口径，确认后督促企业调整挂网价。";
+  if (["item_code_correctable", "retail_price_no_code"].includes(issueType)) return "请目录维护员确认别名映射后重跑监测。";
   return "纳入今日观察，等待补充材料。";
 }
 
 function ownerFor(issueType: string): string {
+  if (issueType === "retail_over_1p3x" || issueType === "spec_over_ratio") return "价格核验人";
   if (issueType.startsWith("collective_")) return "集采落地专班";
   if (issueType.includes("catalog") || issueType.includes("code")) return "目录维护员";
   if (issueType.includes("price")) return "价格核验人";

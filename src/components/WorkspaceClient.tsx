@@ -834,6 +834,15 @@ function SourcePanel({
         <span>上传 CSV / XLSX</span>
         <small>当前演示先支持 CSV，XLSX 已预留入口。</small>
       </label>
+      <a
+        className="sample-csv-link mono"
+        href="/samples/settlement-sample.csv"
+        download="医保结算明细-官方表头样例.csv"
+        data-sample-csv
+        title="官方结算表口径表头（含剂型/规格/结算数量等非治理列），可直接回传演示字段映射与零售比价。"
+      >
+        ↓ 官方结算表表头样例 CSV（含零售无编码 / 1.3 倍比价行）
+      </a>
       <input
         ref={fileInputRef}
         id="workspace-upload"

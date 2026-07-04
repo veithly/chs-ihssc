@@ -3,6 +3,13 @@ import {
   CODE_ALIASES,
   PRICE_CATALOG,
   PROCUREMENT_CHANNELS,
+  RETAIL_CHANNELS,
+  RETAIL_COMPARE_CHANNELS,
+  RETAIL_PRICE_MULTIPLIER,
+  matchCatalogByName,
+  packRatioContextFor,
+  warningTierFor,
+  type PackRatioContext,
 } from "../fixtures";
 import type { ReleaseState, RowVerdict, ToolCall } from "../types";
 
@@ -52,6 +59,27 @@ export interface AnomalyFinding {
   detail: string;
 }
 
+export interface SpecRatioFinding {
+  // 是否适用差比价折算（归并组内非代表品 + 机构挂网渠道 + 单价可解析）
+  applicable: boolean;
+  over: boolean;
+  ctx: PackRatioContext | null;
+  detail: string;
+}
+
+export interface RetailFinding {
+  // 是否适用 1.3 倍比对（机构采购渠道 + 目录项配有零售集中价 + 单价可解析）
+  applicable: boolean;
+  over: boolean;
+  retailPrice: number | null;
+  limit: number | null;
+  // 零售/网售渠道的无编码行：名称对应候选（编码回写需人工确认）
+  isRetailChannel: boolean;
+  noCode: boolean;
+  nameMatch: { code: string; name: string; confidence: number } | null;
+  detail: string;
+}
+
 function tc(
   tool: string,
   label: string,
@@ -79,14 +107,18 @@ export function schemaMapper(row: CandidateRow): {
   finding: SchemaFinding;
   call: ToolCall;
 } {
-  const required = [
-    "item_code",
+  // 零售/网售渠道价天然无医保编码（R6 按名称对应），item_code 不作为必填。
+  const retailChannel = (RETAIL_CHANNELS as readonly string[]).includes(
+    row.procurement_channel,
+  );
+  const required: Array<keyof CandidateRow> = [
     "item_name",
     "price_date",
     "procurement_channel",
     "region",
     "unit_price",
-  ] as const;
+  ];
+  if (!retailChannel) required.unshift("item_code");
   const missing = required.filter((f) => !String(row[f] ?? "").trim());
   const ok = missing.length === 0;
   return {
@@ -178,8 +210,10 @@ export function referencePriceMonitor(row: CandidateRow): {
   const overCeiling = price > item.ceilingPrice;
   const spike = !overCeiling && price > item.referencePrice * 1.15;
   const ok = !overCeiling && !spike;
+  // 苏医保发〔2021〕64号红黄预警分档：按相对基准价的倍数标注提醒/约谈/暂停交易档位。
+  const tier = overCeiling ? warningTierFor(price / item.ceilingPrice) : null;
   const detail = overCeiling
-    ? `单价 ${price.toFixed(2)} 高于最高有效价 ${item.ceilingPrice.toFixed(2)}`
+    ? `单价 ${price.toFixed(2)} 高于最高有效价 ${item.ceilingPrice.toFixed(2)}（${(price / item.ceilingPrice).toFixed(1)} 倍${tier ? ` → ${tier.label}：${tier.action}` : ""}）`
     : spike
       ? `单价 ${price.toFixed(2)} 较参考价 ${item.referencePrice.toFixed(2)} 涨幅超过 15%`
       : `单价 ${price.toFixed(2)} 在参考区间内`;
@@ -204,13 +238,165 @@ export function referencePriceMonitor(row: CandidateRow): {
   };
 }
 
+// ===== R6 零售比价：机构采购价 vs 零售药店/网售平台集中价 1.3 倍上限 =====
+// 「不能高于当地零售药店和互联网销售平台集中价格的 1.3 倍」是政策落地里最难的一条：
+// 零售价没有医保编码，先按名称对应（人审确认），对应上了才可比。
+export function retailPriceComparator(row: CandidateRow): {
+  finding: RetailFinding;
+  call: ToolCall;
+} {
+  const isRetailChannel = (RETAIL_CHANNELS as readonly string[]).includes(
+    row.procurement_channel,
+  );
+  const rawCode = row.item_code.trim();
+  const noCode = !rawCode;
+
+  // 零售/网售渠道行：本身是比价基准来源，不做 1.3 倍校验；无编码时给出名称对应候选。
+  if (isRetailChannel) {
+    const nameMatch = noCode ? matchCatalogByName(row.item_name) : null;
+    const detail = noCode
+      ? nameMatch
+        ? `零售渠道价无医保编码，按名称对应到 ${nameMatch.code}（${nameMatch.name}），置信度 ${Math.round(nameMatch.confidence * 100)}%，编码回写需人工确认`
+        : `零售渠道价无医保编码，名称「${row.item_name}」未能对应到价格目录`
+      : "零售渠道价已带编码，直接纳入多渠道比价基准";
+    return {
+      finding: {
+        applicable: false,
+        over: false,
+        retailPrice: parsePrice(row.unit_price),
+        limit: null,
+        isRetailChannel,
+        noCode,
+        nameMatch,
+        detail,
+      },
+      call: tc(
+        "retail_price_comparator",
+        "零售集中价比对",
+        `channel=${row.procurement_channel}, item_name=${row.item_name}`,
+        detail,
+        !noCode || Boolean(nameMatch),
+        noCode ? (nameMatch ? "retail_price_no_code" : "retail_price_unmatched") : undefined,
+      ),
+    };
+  }
+
+  const code = canonicalCode(rawCode);
+  const item = code ? PRICE_CATALOG[code] : null;
+  const price = parsePrice(row.unit_price);
+  const retailPrice = item?.retailCollectivePrice ?? null;
+  const applicable =
+    Boolean(item) &&
+    retailPrice != null &&
+    price !== null &&
+    (RETAIL_COMPARE_CHANNELS as readonly string[]).includes(row.procurement_channel);
+
+  if (!applicable) {
+    return {
+      finding: {
+        applicable: false,
+        over: false,
+        retailPrice,
+        limit: retailPrice != null ? retailPrice * RETAIL_PRICE_MULTIPLIER : null,
+        isRetailChannel: false,
+        noCode,
+        nameMatch: null,
+        detail: "无零售集中价基准或非机构采购渠道，跳过 1.3 倍比对",
+      },
+      call: tc(
+        "retail_price_comparator",
+        "零售集中价比对",
+        `channel=${row.procurement_channel}, unit_price=${row.unit_price}`,
+        "不适用零售比价",
+        true,
+      ),
+    };
+  }
+
+  const limit = retailPrice! * RETAIL_PRICE_MULTIPLIER;
+  const over = price! > limit;
+  const detail = over
+    ? `机构价 ${price!.toFixed(2)} 高于零售集中价 ${retailPrice!.toFixed(2)} 的 ${RETAIL_PRICE_MULTIPLIER} 倍上限 ${limit.toFixed(2)}`
+    : `机构价 ${price!.toFixed(2)} 在零售集中价 ${RETAIL_PRICE_MULTIPLIER} 倍上限内（≤${limit.toFixed(2)}）`;
+  return {
+    finding: {
+      applicable: true,
+      over,
+      retailPrice,
+      limit,
+      isRetailChannel: false,
+      noCode,
+      nameMatch: null,
+      detail,
+    },
+    call: tc(
+      "retail_price_comparator",
+      "零售集中价比对",
+      `item_code=${code}, channel=${row.procurement_channel}, unit_price=${row.unit_price}`,
+      detail,
+      !over,
+      over ? "retail_over_1p3x" : undefined,
+    ),
+  };
+}
+
+// ===== R7 差比价折算：同通用名不同包装数量按 2452号公式折算后比价 =====
+// 「大剂型小剂型的归类可能还涉及到差比价的计算」——48粒装不能直接和 24粒装比单价，
+// 先算 K = 1.95^log₂X 得到可比价上限，超限的进入需核验（约谈/督促调价是人的决定）。
+export function specRatioComparator(row: CandidateRow): {
+  finding: SpecRatioFinding;
+  call: ToolCall;
+} {
+  const code = canonicalCode(row.item_code);
+  const price = parsePrice(row.unit_price);
+  const institutional = (RETAIL_COMPARE_CHANNELS as readonly string[]).includes(
+    row.procurement_channel,
+  );
+  const ctx = code ? packRatioContextFor(code) : null;
+
+  if (!ctx || price === null || !institutional) {
+    return {
+      finding: {
+        applicable: false,
+        over: false,
+        ctx: null,
+        detail: "非差比价归并组非代表品或非机构挂网渠道，跳过差比价折算",
+      },
+      call: tc(
+        "spec_ratio_comparator",
+        "差比价折算",
+        `item_code=${row.item_code}, channel=${row.procurement_channel}`,
+        "不适用差比价折算",
+        true,
+      ),
+    };
+  }
+
+  // 浮点保护：以万分之一为容差
+  const over = price > ctx.limit * 1.0001;
+  const detail = over
+    ? `差比价超限：${row.item_name}（${ctx.packCount}粒装）申报价 ${price.toFixed(2)} 高于可比价上限 ${ctx.limit.toFixed(2)}。折算依据：代表品「${ctx.repName}」价 ${ctx.repPrice.toFixed(2)}，${ctx.formula}`
+    : `差比价合规：申报价 ${price.toFixed(2)} ≤ 可比价上限 ${ctx.limit.toFixed(2)}（代表品「${ctx.repName}」× K=${ctx.k.toFixed(3)}）`;
+  return {
+    finding: { applicable: true, over, ctx, detail },
+    call: tc(
+      "spec_ratio_comparator",
+      "差比价折算",
+      `item_code=${code}, pack=${ctx.packCount}/${ctx.repPackCount}, unit_price=${row.unit_price}`,
+      detail,
+      !over,
+      over ? "spec_over_ratio" : undefined,
+    ),
+  };
+}
+
 export function collectiveLandingTracker(row: CandidateRow): {
   finding: CollectiveFinding;
   call: ToolCall;
 } {
-  const channelKnown = (PROCUREMENT_CHANNELS as readonly string[]).includes(
-    row.procurement_channel,
-  );
+  const channelKnown =
+    (PROCUREMENT_CHANNELS as readonly string[]).includes(row.procurement_channel) ||
+    (RETAIL_CHANNELS as readonly string[]).includes(row.procurement_channel);
   const code = canonicalCode(row.item_code);
   const item = code ? PRICE_CATALOG[code] : null;
   const price = parsePrice(row.unit_price);
@@ -313,6 +499,8 @@ export const VALIDATORS = [
   "price_catalog_standardizer",
   "reference_price_monitor",
   "collective_landing_tracker",
+  "retail_price_comparator",
+  "spec_ratio_comparator",
   "anomaly_profiler",
 ] as const;
 
@@ -321,6 +509,8 @@ export interface RowFindings {
   standard: StandardFinding;
   price: PriceFinding;
   collective: CollectiveFinding;
+  retail: RetailFinding;
+  specRatio: SpecRatioFinding;
   anomaly: AnomalyFinding;
 }
 
@@ -332,10 +522,44 @@ export function classifyRow(
   const standard = priceCatalogStandardizer(row).finding;
   const price = referencePriceMonitor(row).finding;
   const collective = collectiveLandingTracker(row).finding;
+  const retail = retailPriceComparator(row).finding;
+  const specRatio = specRatioComparator(row).finding;
   const anomaly = anomalyProfiler(row, releaseDate).finding;
-  const findings: RowFindings = { schema, standard, price, collective, anomaly };
+  const findings: RowFindings = { schema, standard, price, collective, retail, specRatio, anomaly };
 
   let verdict: RowVerdict;
+  // R6 零售/网售无编码行：先于 schema 判断——缺编码是该渠道的常态，不是字段缺失异常。
+  // 名称能对应 → 纠错候选（编码回写需人工确认）；对应不上 → 需核验，绝不自动落地。
+  if (retail.isRetailChannel && retail.noCode && row.item_name.trim()) {
+    if (retail.nameMatch) {
+      verdict = {
+        state: "纠错候选",
+        issueType: "retail_price_no_code",
+        severity: "medium",
+        sourceRule: "R6 零售/网售渠道价按名称对应，编码回写需人工确认",
+        confidence: retail.nameMatch.confidence,
+        detectedFields: ["item_code", "item_name", "procurement_channel"],
+        writer: "correction",
+        issueText: retail.detail,
+        recommendation:
+          "人工确认名称↔编码对应关系后回写标准编码，该零售价随即纳入多渠道比价基准。",
+        suggestion: retail.nameMatch.code,
+      };
+    } else {
+      verdict = {
+        state: "需核验",
+        issueType: "retail_price_unmatched",
+        severity: "medium",
+        sourceRule: "R6 零售/网售渠道价按名称对应",
+        confidence: 0.6,
+        detectedFields: ["item_name", "procurement_channel"],
+        writer: "approval",
+        issueText: retail.detail,
+        recommendation: "转目录维护人工检索对应编码；对应不上前该价格不进入比价结论。",
+      };
+    }
+    return { verdict, findings };
+  }
   if (!schema.ok) {
     verdict = {
       state: "异常处置",
@@ -395,6 +619,32 @@ export function classifyRow(
       writer: "quarantine",
       issueText: collective.detail,
       recommendation: "进入集采价格异常处置，核对省平台落地价与医疗机构执行价。",
+    };
+  } else if (retail.over) {
+    verdict = {
+      state: "异常处置",
+      issueType: "retail_over_1p3x",
+      severity: "high",
+      sourceRule: "R6 挂网/采购价不得高于零售「即时达」集中价 1.3 倍（国办发〔2026〕9号）",
+      confidence: 0.95,
+      detectedFields: ["unit_price", "procurement_channel"],
+      writer: "quarantine",
+      issueText: retail.detail,
+      recommendation:
+        "生成零售比价核实口径：核对零售/网售集中价采集口径与机构执行价，超上限部分要求机构说明或启动调价。",
+    };
+  } else if (specRatio.over) {
+    verdict = {
+      state: "需核验",
+      issueType: "spec_over_ratio",
+      severity: "medium",
+      sourceRule: "R7 同通用名不同包装按差比价折算后比价（发改价格〔2011〕2452号）",
+      confidence: 0.9,
+      detectedFields: ["item_code", "unit_price"],
+      writer: "approval",
+      issueText: specRatio.detail,
+      recommendation:
+        "路由价格招采条线核验规格/包装折算口径，确认超限后督促企业调整挂网价至差比价上限内。",
     };
   } else if (collective.notLanded || !collective.channelKnown) {
     verdict = {
@@ -463,6 +713,8 @@ export const TOOL_LABELS: Record<string, string> = {
   price_catalog_standardizer: "价格目录标化",
   reference_price_monitor: "参考价动态监测",
   collective_landing_tracker: "集采落地跟踪",
+  retail_price_comparator: "零售集中价比对",
+  spec_ratio_comparator: "差比价折算",
   anomaly_profiler: "异常画像",
   correction_writer: "纠错提案写入",
   quarantine_writer: "异常处置写入",

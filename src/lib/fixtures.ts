@@ -25,6 +25,14 @@ export interface PriceCatalogItem {
   referencePrice: number;
   ceilingPrice: number;
   collectivePrice?: number;
+  // 零售药店/网售平台集中价格（监测口径）：机构采购价不得高于其 1.3 倍。
+  retailCollectivePrice?: number;
+  // 差比价归并组（发改价格〔2011〕2452号）：同通用名同剂型同含量、仅包装数量不同。
+  comparableGroup?: string;
+  // 最小零售包装内的制剂数量（粒/片），差比价折算用。
+  packCount?: number;
+  // 代表品（常用包装规格），组内非代表品按差比价公式从它折算可比价。
+  isRepresentative?: boolean;
   landedRegions: string[];
 }
 
@@ -36,6 +44,22 @@ export const PRICE_CATALOG: Record<string, PriceCatalogItem> = {
     referencePrice: 8.72,
     ceilingPrice: 13.5,
     collectivePrice: 6.88,
+    retailCollectivePrice: 9.6,
+    comparableGroup: "阿莫西林胶囊 0.25g",
+    packCount: 24,
+    isRepresentative: true,
+    landedRegions: ["上海市", "江苏省", "浙江省", "安徽省"],
+  },
+  // 同通用名同含量的大包装规格：只有过差比价折算才可与 24 粒代表品比价。
+  "YP-AXL-005": {
+    name: "阿莫西林胶囊 0.25g*48粒",
+    category: "药品",
+    unit: "盒",
+    referencePrice: 15.8,
+    ceilingPrice: 26,
+    collectivePrice: 12.9,
+    comparableGroup: "阿莫西林胶囊 0.25g",
+    packCount: 48,
     landedRegions: ["上海市", "江苏省", "浙江省", "安徽省"],
   },
   "YP-AMT-002": {
@@ -45,6 +69,7 @@ export const PRICE_CATALOG: Record<string, PriceCatalogItem> = {
     referencePrice: 18.9,
     ceilingPrice: 28,
     collectivePrice: 13.86,
+    retailCollectivePrice: 19.9,
     landedRegions: ["北京市", "天津市", "河北省", "上海市"],
   },
   "YP-INS-003": {
@@ -63,6 +88,7 @@ export const PRICE_CATALOG: Record<string, PriceCatalogItem> = {
     referencePrice: 11.4,
     ceilingPrice: 17.2,
     collectivePrice: 8.96,
+    retailCollectivePrice: 12.4,
     landedRegions: ["四川省", "重庆市", "云南省", "贵州省"],
   },
   "HC-STN-901": {
@@ -128,6 +154,117 @@ export const PROCUREMENT_CHANNELS = [
   "阳光采购",
 ] as const;
 
+// 零售监测渠道：价格没有医保编码，只有商品名——需按名称对应到目录后才可比价。
+// 不进入随机干净行的渠道池，只在监测口径行中出现（确定性演示素材）。
+export const RETAIL_CHANNELS = ["零售药店", "网上药店"] as const;
+
+// 适用「不高于零售集中价 1.3 倍」比对的机构采购渠道（集采渠道走中选价校验，不重复比）。
+export const RETAIL_COMPARE_CHANNELS = ["省级挂网", "院内议价", "阳光采购"] as const;
+
+export const RETAIL_PRICE_MULTIPLIER = 1.3;
+
+// 名称标化：去掉厂商/门店括注、统一乘号与空白，用于零售无编码价格的目录对应。
+export function normalizeItemName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[（(][^）)]*[）)]/g, "")
+    .replace(/[×xX]/g, "*")
+    .replace(/毫克/g, "mg")
+    .replace(/[\s\u3000·，,。.\-—_/]/g, "");
+}
+
+export interface CatalogNameMatch {
+  code: string;
+  name: string;
+  confidence: number;
+}
+
+// 按名称把无编码的渠道价对应到医保项目编码。返回的是"候选"——
+// 编码回写必须人工确认（对应关系是敏感判断，AI 只提议不定性）。
+export function matchCatalogByName(rawName: string): CatalogNameMatch | null {
+  const q = normalizeItemName(rawName);
+  if (!q) return null;
+  let best: CatalogNameMatch | null = null;
+  for (const [code, item] of Object.entries(PRICE_CATALOG)) {
+    const c = normalizeItemName(item.name);
+    let confidence = 0;
+    if (q === c) confidence = 0.93;
+    else if (q.includes(c) || c.includes(q)) confidence = 0.78;
+    else {
+      // 通用名+剂型前缀匹配（去掉规格数字后比较）
+      const qHead = q.replace(/[0-9].*$/, "");
+      const cHead = c.replace(/[0-9].*$/, "");
+      if (qHead && qHead.length >= 4 && qHead === cHead) confidence = 0.62;
+    }
+    if (confidence > (best?.confidence ?? 0)) {
+      best = { code, name: item.name, confidence };
+    }
+  }
+  return best && best.confidence >= 0.6 ? best : null;
+}
+
+// ===== 红黄预警分档（苏医保发〔2021〕64号《关于深入推进药品阳光采购的实施意见》）=====
+// 相对已挂网同品种价的倍数分档：高出不足 2 倍黄色预警；2-5 倍红★；5-10 倍红★★；
+// 10 倍(含)以上红★★★——暂停交易资格，原则上不得采购。预警标记每季度初更新。
+export interface WarningTier {
+  label: string;
+  stars: number;
+  color: "yellow" | "red";
+  action: string;
+}
+
+export function warningTierFor(multiple: number): WarningTier | null {
+  if (!Number.isFinite(multiple) || multiple <= 1) return null;
+  if (multiple >= 10)
+    return { label: "红色预警★★★", stars: 3, color: "red", action: "暂停交易资格，原则上不得采购" };
+  if (multiple >= 5)
+    return { label: "红色预警★★", stars: 2, color: "red", action: "约谈企业，提醒医疗机构谨慎采购" };
+  if (multiple >= 2)
+    return { label: "红色预警★", stars: 1, color: "red", action: "约谈企业，提醒医疗机构谨慎采购" };
+  return { label: "黄色预警", stars: 0, color: "yellow", action: "提醒医疗机构关注价差" };
+}
+
+// ===== 差比价（发改价格〔2011〕2452号 第十三条 包装数量差比价）=====
+// 口服片剂/胶囊剂：非代表品价 = 代表品价 × K，K = 1.95^(log₂X)，
+// X = 非代表品包装数量 ÷ 代表品包装数量（包装数量翻倍，价格上限乘 1.95）。
+export const PACK_RATIO_COEFF = 1.95;
+
+export interface PackRatioContext {
+  repCode: string;
+  repName: string;
+  repPrice: number;
+  packCount: number;
+  repPackCount: number;
+  ratio: number;
+  k: number;
+  limit: number;
+  formula: string;
+}
+
+export function packRatioContextFor(code: string): PackRatioContext | null {
+  const item = PRICE_CATALOG[code];
+  if (!item?.comparableGroup || !item.packCount || item.isRepresentative) return null;
+  const repEntry = Object.entries(PRICE_CATALOG).find(
+    ([, it]) => it.comparableGroup === item.comparableGroup && it.isRepresentative,
+  );
+  if (!repEntry || !repEntry[1].packCount) return null;
+  const [repCode, rep] = repEntry;
+  const ratio = item.packCount / rep.packCount!;
+  const k = Math.pow(PACK_RATIO_COEFF, Math.log2(ratio));
+  const limit = rep.referencePrice * k;
+  return {
+    repCode,
+    repName: rep.name,
+    repPrice: rep.referencePrice,
+    packCount: item.packCount,
+    repPackCount: rep.packCount!,
+    ratio,
+    k,
+    limit,
+    formula: `K = ${PACK_RATIO_COEFF}^log₂(${item.packCount}/${rep.packCount}) = ${k.toFixed(3)}；可比价上限 = ${rep.referencePrice.toFixed(2)} × ${k.toFixed(3)} = ${limit.toFixed(2)} 元`,
+  };
+}
+
 export const REGION_OPTIONS = [
   "北京市",
   "上海市",
@@ -176,6 +313,8 @@ export const RELEASE_RULES = [
   "R3 单价超过最高有效价或超过集采中选价容忍阈值时进入异常处置。",
   "R4 集采中选价必须在已落地区域内落地，未落地或跨区异常进入需核验。",
   "R5 相对参考价涨幅超过 15% 但未触发硬阈值时进入需核验。",
+  "R6 挂网/采购价不得高于当地零售药店及网售平台「即时达」价格集中区间的 1.3 倍（国办发〔2026〕9号全渠道比价口径）；零售/网售渠道无编码价格按名称对应，编码回写需人工确认。",
+  "R7 同通用名不同包装数量的挂网价先按差比价折算再比价：非代表品价 ≤ 代表品价 × 1.95^log₂X（发改价格〔2011〕2452号包装数量差比价），超限进入需核验。",
 ];
 
 export interface FixtureRow {
@@ -204,10 +343,18 @@ type IssueKind =
   | "hard_code"
   | "correctable"
   | "price_over_ceiling"
+  // 极端超挂网基准 10 倍以上（苏医保发〔2021〕64号红色预警★★★：暂停交易资格档）
+  | "price_over_10x"
   | "price_spike"
   | "collection_not_landed"
   | "collection_over_price"
-  | "schema_missing";
+  | "schema_missing"
+  // 零售/网售监测口径行：无医保编码，只有商品名（名称带门店括注）
+  | "retail_no_code"
+  // 机构挂网价超零售集中价 1.3 倍（但不破最高有效价，命中 R6 而非 R3）
+  | "retail_over_1p3x"
+  // 大包装规格挂网价超差比价折算上限（2452号 K=1.95^log₂X，命中 R7）
+  | "spec_over_ratio";
 
 interface BatchPlan {
   id: string;
@@ -220,6 +367,17 @@ interface BatchPlan {
   total: number;
   issues: Partial<Record<IssueKind, number>>;
 }
+
+const RETAIL_PRICED_CODES = Object.entries(PRICE_CATALOG)
+  .filter(([, item]) => item.retailCollectivePrice != null)
+  .map(([code]) => code);
+
+// 差比价非代表品（有归并组且非代表品）：R7 演示素材的候选池。
+const SPEC_RATIO_CODES = Object.entries(PRICE_CATALOG)
+  .filter(([, item]) => item.comparableGroup && !item.isRepresentative)
+  .map(([code]) => code);
+
+const RETAIL_STORE_SUFFIXES = ["惠民大药房", "康泰连锁药店", "线上旗舰店"] as const;
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -328,6 +486,10 @@ function buildBatch(plan: BatchPlan): FixtureRelease {
       case "price_over_ceiling":
         r.unit_price = money(item.ceilingPrice * (1.18 + rng() * 0.2));
         break;
+      case "price_over_10x":
+        r.procurement_channel = "省级挂网";
+        r.unit_price = money(item.ceilingPrice * (10.2 + rng() * 0.8));
+        break;
       case "price_spike":
         r.procurement_channel = "省级挂网";
         r.unit_price = money(item.referencePrice * (1.16 + rng() * 0.08));
@@ -347,6 +509,43 @@ function buildBatch(plan: BatchPlan): FixtureRelease {
       case "schema_missing":
         r.item_code = "";
         break;
+      case "retail_no_code": {
+        const retailCode = pick(rng, RETAIL_PRICED_CODES);
+        const retailItem = PRICE_CATALOG[retailCode];
+        r.item_code = "";
+        r.item_name = `${retailItem.name.replace("*", "×")}（${pick(rng, RETAIL_STORE_SUFFIXES)}）`;
+        r.procurement_channel = pick(rng, RETAIL_CHANNELS);
+        r.unit_price = money(
+          (retailItem.retailCollectivePrice ?? retailItem.referencePrice) * (0.97 + rng() * 0.05),
+        );
+        break;
+      }
+      case "retail_over_1p3x": {
+        const retailCode = pick(rng, RETAIL_PRICED_CODES);
+        const retailItem = PRICE_CATALOG[retailCode];
+        r.item_code = retailCode;
+        r.item_name = retailItem.name;
+        r.procurement_channel = "省级挂网";
+        const retail = retailItem.retailCollectivePrice ?? retailItem.referencePrice;
+        r.unit_price = money(
+          Math.min(retail * RETAIL_PRICE_MULTIPLIER * (1.02 + rng() * 0.05), retailItem.ceilingPrice * 0.985),
+        );
+        break;
+      }
+      case "spec_over_ratio": {
+        const specCode = pick(rng, SPEC_RATIO_CODES);
+        const specItem = PRICE_CATALOG[specCode];
+        const ctx = packRatioContextFor(specCode);
+        r.item_code = specCode;
+        r.item_name = specItem.name;
+        r.procurement_channel = "省级挂网";
+        const limit = ctx?.limit ?? specItem.referencePrice * 1.2;
+        // 超差比价折算上限 10-22%，但不破最高有效价（命中 R7 而非 R3）
+        r.unit_price = money(
+          Math.min(limit * (1.1 + rng() * 0.12), specItem.ceilingPrice * 0.96),
+        );
+        break;
+      }
     }
   }
 
@@ -374,7 +573,9 @@ const PLANS: BatchPlan[] = [
     is_sample: false,
     total: 42,
     issues: {
-      price_over_ceiling: 2,
+      // 一条常规超限（黄色预警档）+ 一条 10 倍以上极端超限（红色预警★★★档，64号分档演示）
+      price_over_ceiling: 1,
+      price_over_10x: 1,
       collection_over_price: 2,
       hard_code: 1,
       correctable: 2,
@@ -382,6 +583,11 @@ const PLANS: BatchPlan[] = [
       // 参考价涨幅 15-20% 的中危行：非敏感、可被人审沉淀的规则自动处置（自动复用演示素材）
       price_spike: 2,
       future_date: 1,
+      // R6 多渠道比价素材：零售无编码价（名称对应需人审）+ 挂网价超零售集中价 1.3 倍
+      retail_no_code: 2,
+      retail_over_1p3x: 2,
+      // R7 差比价素材：48粒大包装挂网价超 2452号折算上限
+      spec_over_ratio: 1,
     },
   },
   {
@@ -393,7 +599,7 @@ const PLANS: BatchPlan[] = [
     release_date: "2026-06-22",
     is_sample: false,
     total: 38,
-    issues: { correctable: 6 },
+    issues: { correctable: 6, spec_over_ratio: 2 },
   },
   {
     id: "REL-2026-0623-09",
@@ -426,7 +632,7 @@ const PLANS: BatchPlan[] = [
     release_date: "2026-06-23",
     is_sample: true,
     total: 14,
-    issues: { correctable: 1, price_spike: 1 },
+    issues: { correctable: 1, price_spike: 1, retail_no_code: 1 },
   },
 ];
 
