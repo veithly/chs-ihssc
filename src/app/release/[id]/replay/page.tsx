@@ -80,7 +80,18 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
             <Badge className="mono" variant="soft" color="gray" radius="full">{run.id.slice(0, 14)}</Badge>
             <StateBadge state={run.result_state} />
           </div>
-          <CopyButton text={`/release/${id}/replay`} />
+          <div className="replay-head-actions">
+            <Link
+              href={`/api/run/${run.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="replay-json-link"
+              data-run-json-link
+            >
+              查看运行 JSON
+            </Link>
+            <CopyButton text={`/release/${id}/replay`} />
+          </div>
         </div>
 
         <div className="replay-plan">
@@ -177,6 +188,31 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
           font-weight: 600;
           letter-spacing: 0.02em;
           text-transform: uppercase;
+        }
+        .replay-head-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .replay-json-link {
+          display: inline-flex;
+          align-items: center;
+          min-height: 32px;
+          padding: 0 12px;
+          border: 1px solid var(--gate-border);
+          border-radius: 999px;
+          background: var(--surface-subtle);
+          color: var(--gate-ink);
+          font-size: 12px;
+          font-weight: 600;
+          text-decoration: none;
+        }
+        .replay-json-link:hover {
+          border-color: var(--gate-accent);
+          color: var(--gate-accent-strong);
+          background: var(--gate-accent-soft);
         }
         .replay-plan {
           margin-top: 14px;

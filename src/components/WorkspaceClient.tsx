@@ -696,7 +696,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
           </div>
         </div>
         <div className="workspace-band-right">
-          {thread?.id && (
+          {thread?.id ? (
             <a
               className="report-link mono"
               href={`/workspace/report/${thread.id}`}
@@ -707,6 +707,14 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             >
               <FileTextIcon /> 处置结果单
             </a>
+          ) : (
+            <span
+              className="report-link disabled mono"
+              aria-disabled="true"
+              title="接入数据并完成一次核查后生成处置结果单"
+            >
+              <FileTextIcon /> 处置结果单
+            </span>
           )}
           <Badge
             color={isRunning ? "blue" : needsUser ? "amber" : dataset ? "green" : "gray"}

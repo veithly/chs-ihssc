@@ -992,17 +992,51 @@ a {
   background: var(--surface-subtle);
 }
 
-.task-row div {
+.task-row > div:first-child {
   font-weight: 600;
   font-size: 13px;
 }
 
-.task-row span {
+.task-row > span {
   display: block;
   margin-top: 4px;
   color: var(--gate-ink-soft);
   font-size: 12.5px;
   line-height: 1.55;
+}
+
+.task-row-actions {
+  margin-top: 10px;
+}
+
+.follow-response-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.follow-response-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--gate-ink-soft);
+  font-size: 12.5px;
+}
+
+.follow-response-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.follow-response-error {
+  color: var(--gate-red);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* Conversational price-governance workspace (agent workbench) ---------- */
@@ -1139,6 +1173,41 @@ a {
 
 .workspace-band-badge {
   flex-shrink: 0;
+}
+
+.workspace-band-right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.report-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--gate-border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--gate-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.report-link:not(.disabled):hover {
+  border-color: var(--gate-accent);
+  color: var(--gate-accent-strong);
+  background: var(--gate-accent-soft);
+}
+
+.report-link.disabled {
+  color: var(--ink-3);
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .dot {

@@ -314,6 +314,75 @@ export function LeadActionBar({ leadId }: { leadId: string }) {
   );
 }
 
+export function FollowUpResponseAction({ taskId }: { taskId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [responder, setResponder] = useState("机构联系人");
+  const [summary, setSummary] = useState("");
+  const [complete, setComplete] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/follow-up-tasks/${taskId}/response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responder, summary, complete }),
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string };
+      if (!res.ok || !data.ok) throw new Error(data.message || "反馈记录失败。");
+      setOpen(false);
+      setSummary("");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "反馈记录失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button size="1" variant="soft" onClick={() => setOpen(true)} data-follow-up-response>
+        <PaperPlaneIcon /> 记录反馈
+      </Button>
+    );
+  }
+
+  return (
+    <div className="follow-response-panel" data-follow-up-response-form>
+      <TextField.Root
+        size="2"
+        value={responder}
+        onChange={(e) => setResponder(e.target.value)}
+        placeholder="反馈人"
+      />
+      <TextArea
+        size="2"
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
+        placeholder="记录补证、回函或电话反馈摘要"
+      />
+      <label className="follow-response-check">
+        <input type="checkbox" checked={complete} onChange={(e) => setComplete(e.target.checked)} />
+        <span>本次反馈已完成</span>
+      </label>
+      <div className="follow-response-actions">
+        <Button size="1" disabled={busy || !summary.trim()} onClick={submit}>
+          {busy ? <LoopIcon className="spin" /> : <CheckCircledIcon />} 保存反馈
+        </Button>
+        <Button size="1" variant="soft" color="gray" disabled={busy} onClick={() => setOpen(false)}>
+          取消
+        </Button>
+      </div>
+      {error && <div className="follow-response-error">{error}</div>}
+    </div>
+  );
+}
+
 function RerankBox({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [priorityText, setPriorityText] = useState("下午临时优先看市人民医院和冠脉支架。");

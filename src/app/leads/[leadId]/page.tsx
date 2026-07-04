@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@radix-ui/themes";
 import { AppHeader, Breadcrumb } from "@/components/AppHeader";
-import { LeadActionBar } from "@/components/MorningWorkbench";
+import { FollowUpResponseAction, LeadActionBar } from "@/components/MorningWorkbench";
 import { ReplayTimelineView } from "@/components/ReplayTimelineView";
 import {
   getDailyLead,
@@ -151,6 +151,9 @@ export default async function LeadPage({
                       {task.task_type} · <span className="mono">{task.status}</span>
                     </div>
                     <span>{task.message_draft}</span>
+                    <div className="task-row-actions">
+                      <FollowUpResponseAction taskId={task.id} />
+                    </div>
                   </div>
                 ))}
                 {tasks.length === 0 && (
