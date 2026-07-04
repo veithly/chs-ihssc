@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button, TextField, TextArea, Flex } from "@radix-ui/themes";
 import { CopyIcon, CheckIcon, DownloadIcon, UpdateIcon } from "@radix-ui/react-icons";
 
-export function CopyButton({ text, label = "复制回放链接" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = "复制过程回看链接" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
     <Button
@@ -50,7 +50,7 @@ export function AuditExportButton({
         URL.revokeObjectURL(url);
       }}
     >
-      <DownloadIcon /> 导出治理证据（JSON）
+      <DownloadIcon /> 导出治理证据包
     </Button>
   );
 }
@@ -65,7 +65,7 @@ export function ResetSampleButton() {
       size="2"
       disabled={busy}
       onClick={async () => {
-        if (!confirm("重置所有示例价格批次与运行记录？将清空当前核查、核验和异常处置记录。")) return;
+        if (!confirm("重置所有示例价格批次与核查记录？将清空当前核查、核验和异常处置记录。")) return;
         setBusy(true);
         await fetch("/api/admin/reseed", { method: "POST" });
         setBusy(false);
@@ -106,7 +106,7 @@ export function ApprovalActions({ approvalId }: { approvalId: string }) {
         size="2"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="核验备注（将与智能体建议分开记录在回放中）"
+        placeholder="核验备注（将与价序建议分开记录在过程回看中）"
       />
       <Flex gap="2">
         <Button color="green" disabled={busy} onClick={() => decide("approved")} data-approve>

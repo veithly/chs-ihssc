@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getMorningSession } from "@/lib/repo";
 import { runMorningSessionAgent } from "@/lib/agent/runMorningSessionAgent";
 
@@ -19,7 +19,7 @@ export async function POST(
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "请求格式不正确，请重新提交。" }, { status: 400 });
   }
 
   const result = await runMorningSessionAgent({

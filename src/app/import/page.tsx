@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default function ImportPage() {
   return (
     <div className="gate-shell">
-      <AppHeader active="批次导入" />
+      <AppHeader active="补充来源" />
       <Breadcrumb items={["价序", "采集箱"]} />
       <main className="import-shell">
         <header className="import-page-head">
@@ -16,7 +16,7 @@ export default function ImportPage() {
           </div>
           <h1 className="import-page-title">补一批来源</h1>
           <p className="import-page-lead">
-            CSV 只是补来源的一种方式。真实使用里，这里可以接省平台、院端回传、投诉线索和人工补证材料。
+            表格只是补来源的一种方式。真实使用里，这里可以接省平台、院端回传、投诉线索和人工补证材料。
           </p>
         </header>
         <ImportForm />

@@ -24,7 +24,7 @@ export default async function ProofPage({
   if (!release) {
     return (
       <div className="gate-shell">
-        <AppHeader active="价格治理" />
+        <AppHeader active="待办核验" />
         <main className="proof-empty">未找到价格批次 {id}</main>
       </div>
     );
@@ -77,7 +77,7 @@ export default async function ProofPage({
   );
 
   const manifestRows: { label: string; value: string }[] = [
-    { label: "价格 schema", value: manifest?.schema_version ?? "-" },
+    { label: "表头规范", value: manifest?.schema_version ?? "-" },
     { label: "价格目录版本", value: manifest?.code_dictionary_version ?? "-" },
     { label: "参考价来源", value: manifest?.token_method ?? "-" },
     { label: "渠道策略版本", value: manifest?.procurement_channel_version ?? "-" },
@@ -87,8 +87,8 @@ export default async function ProofPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
-      <Breadcrumb items={["价格治理", "价格批次", id, "目录与规则"]} />
+      <AppHeader active="待办核验" />
+      <Breadcrumb items={["价格治理", "价格批次", id, "依据与规则"]} />
       <main className="proof-shell">
         <ResultTabs releaseId={id} active="proof" />
 
@@ -113,7 +113,7 @@ export default async function ProofPage({
               ))}
             </dl>
 
-            <div className="proof-rules-head">治理规则 · Governance Rules</div>
+            <div className="proof-rules-head">治理规则</div>
             <ul className="proof-rules">
               {RELEASE_RULES.map((r) => (
                 <li key={r}>{r}</li>
@@ -128,7 +128,7 @@ export default async function ProofPage({
           <aside className="gate-card proof-side">
             <div className="proof-side-head">
               <strong>采购渠道策略快照</strong>
-              <span className="mono proof-side-meta">{Object.keys(policy).length} channels</span>
+              <span className="mono proof-side-meta">{Object.keys(policy).length} 类渠道</span>
             </div>
             {Object.entries(policy).map(([label, p]) => (
               <div key={label} className="proof-policy-card">
@@ -149,7 +149,7 @@ export default async function ProofPage({
               </div>
             ))}
             <p className="proof-side-foot">
-              该快照在价格治理时被 collective_landing_tracker 读取；未落地地区或未知渠道将进入「需核验」。
+              该快照用于核对采购渠道与适用地区；未落地地区或未知渠道将进入「需核验」。
             </p>
           </aside>
         </div>

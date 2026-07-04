@@ -26,7 +26,7 @@ export default async function ReleaseGatePage({
   if (!release) {
     return (
       <div className="gate-shell">
-        <AppHeader active="价格治理" />
+        <AppHeader active="待办核验" />
         <main className="release-empty">
           <h1>未找到该价格批次：{id}</h1>
           <p>
@@ -79,7 +79,7 @@ export default async function ReleaseGatePage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
+      <AppHeader active="待办核验" />
       <Breadcrumb items={["价格治理", "价格批次", release.id]} />
       <ReleaseGate
         release={{

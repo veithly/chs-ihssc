@@ -23,8 +23,8 @@ export default async function ReplayPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格治理" />
-      <Breadcrumb items={["价格治理", "价格批次", id, "运行回放"]} />
+      <AppHeader active="待办核验" />
+      <Breadcrumb items={["价格治理", "价格批次", id, "过程回看"]} />
       <main className="replay-shell">
         <ResultTabs releaseId={id} active="replay" />
         {!run ? (
@@ -40,7 +40,7 @@ export default async function ReplayPage({
 function EmptyReplay({ id }: { id: string }) {
   return (
     <div className="gate-card replay-empty">
-      <p>暂无运行回放。先运行一次价格治理。</p>
+      <p>暂无过程记录。先发起一次价格治理核查。</p>
       <Link href={`/release/${id}`} className="replay-empty-link">
         前往价格治理 →
       </Link>
@@ -70,13 +70,14 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
   const meta = JSON.parse(run.provider_meta_json) as Record<string, unknown>;
   const events = JSON.parse(getReplayByRun(run.id)?.events_json ?? "[]") as ReplayEvent[];
   const stats = JSON.parse(run.candidate_json || "{}") as Partial<BatchStats>;
+  const sourceLabel = String(meta.source) === "live-provider" ? "智能研判" : "可确定规则";
 
   return (
     <div className="replay-grid">
       <section className="gate-card replay-main">
         <div className="replay-main-head">
           <div className="replay-main-id">
-            <strong>智能体计划与工具调用</strong>
+            <strong>核查过程与依据</strong>
             <Badge className="mono" variant="soft" color="gray" radius="full">{run.id.slice(0, 14)}</Badge>
             <StateBadge state={run.result_state} />
           </div>
@@ -88,7 +89,7 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
               className="replay-json-link"
               data-run-json-link
             >
-              查看运行 JSON
+              查看证据明细
             </Link>
             <CopyButton text={`/release/${id}/replay`} />
           </div>
@@ -105,20 +106,20 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
           </div>
           <div className="replay-plan-row">
             <span className="replay-plan-label">规划说明</span>
-            <span>live provider · {plan.rationale}</span>
+            <span>{plan.rationale}</span>
           </div>
           <div className="mono replay-plan-meta">
-            provider={String(meta.source)} · model={String(meta.model ?? "-")} · host={String(meta.baseUrlHost ?? "-")} · {String(meta.latency_ms ?? "-")}ms
+              研判来源={sourceLabel} · 研判能力={String(meta.model ?? "-")} · 用时 {String(meta.latency_ms ?? "-")}ms
           </div>
           {typeof stats.scanned === "number" && (
             <div className="mono replay-plan-meta">
-              batch · 扫描 {stats.scanned} 行 · {stats.validations ?? 0} 次校验 · 命中 {stats.issues ?? 0} 处
+              本批数据 · 扫描 {stats.scanned} 行 · {stats.validations ?? 0} 次校验 · 命中 {stats.issues ?? 0} 处
             </div>
           )}
         </div>
 
         <div className="replay-tools-head">
-          <span>工具调用轨迹</span>
+          <span>核查明细</span>
           <span className="mono">{tools.length} 次</span>
         </div>
         <div data-tool-trace className="replay-tools">
@@ -133,15 +134,15 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
               </span>
               <div className="replay-tool-body">
                 <div className="replay-tool-head">
-                  <code className="mono replay-tool-name">{t.tool}</code>
+                  <code className="mono replay-tool-name">步骤 {String(i + 1).padStart(2, "0")}</code>
                   <span className="replay-tool-label">{t.label}</span>
                 </div>
                 <div className="mono replay-tool-io">
-                  <span className="replay-tool-io-key">in</span>
+                  <span className="replay-tool-io-key">依据</span>
                   <span className="replay-tool-io-val">{t.input}</span>
                 </div>
                 <div className="mono replay-tool-io">
-                  <span className="replay-tool-io-key">out</span>
+                  <span className="replay-tool-io-key">结果</span>
                   <span className="replay-tool-io-val">{t.output}</span>
                 </div>
               </div>
@@ -152,7 +153,7 @@ function ReplayBody({ id, run }: { id: string; run: NonNullable<ReturnType<typeo
 
       <aside className="gate-card replay-side">
         <div className="replay-side-head">
-          <strong>observe · plan · tools · mutate · verify</strong>
+          <strong>读取数据 · 排查重点 · 核对明细 · 形成处置 · 复核留痕</strong>
         </div>
         <ReplayTimelineView events={events} />
       </aside>

@@ -101,9 +101,9 @@ export default async function ThreadReportPage({
             </div>
           </div>
           <div className="report-fingerprint mono">
-            政策事实指纹 v#{metrics.policyFingerprint ?? "—"}（{metrics.factCount} 条 policy_fact）
-            · 会话运行 {report.runCount} 次
-            {report.latestOutputHash ? ` · 最近输出指纹 ${report.latestOutputHash.slice(0, 12)}` : ""}
+            政策依据版本 v#{metrics.policyFingerprint ?? "—"}（{metrics.factCount} 条政策依据）
+            · 核查 {report.runCount} 次
+            {report.latestOutputHash ? ` · 最近输出留痕 ${report.latestOutputHash.slice(0, 12)}` : ""}
           </div>
         </header>
 
@@ -165,7 +165,7 @@ export default async function ThreadReportPage({
               <span className="kpi-num">
                 {metrics.driftsResolved}/{metrics.driftsDetected}
               </span>
-              <span className="kpi-label">漂移已闭环</span>
+              <span className="kpi-label">风险已闭环</span>
             </div>
             <div className="kpi">
               <span className="kpi-num">{metrics.estimatedMinutesSaved}</span>
@@ -177,17 +177,17 @@ export default async function ThreadReportPage({
 
         {/* ===== 三、政策漂移明细 ===== */}
         <section className="report-section">
-          <h2>三、政策漂移明细（{drifts.length}）</h2>
+          <h2>三、政策变化风险明细（{drifts.length}）</h2>
           {drifts.length === 0 ? (
-            <p className="report-empty">本会话未检出政策漂移。</p>
+            <p className="report-empty">本会话未检出政策变化风险。</p>
           ) : (
             <table className="report-table">
               <thead>
                 <tr>
                   <th style={{ width: 110 }}>项目编码</th>
-                  <th style={{ width: 130 }}>规则</th>
+                  <th style={{ width: 130 }}>依据规则</th>
                   <th style={{ width: 52 }}>级别</th>
-                  <th>政策基线 → 观测值</th>
+                  <th>政策依据 → 当前观测</th>
                   <th style={{ width: 64 }}>状态</th>
                   <th style={{ width: 96 }}>检出时间</th>
                 </tr>
@@ -282,7 +282,7 @@ export default async function ThreadReportPage({
 
         {/* ===== 五、本单引用的学习规则 ===== */}
         <section className="report-section">
-          <h2>五、生效中的学习规则（{rules.length}）</h2>
+          <h2>五、生效中的复用规则（{rules.length}）</h2>
           {rules.length === 0 ? (
             <p className="report-empty">当前无激活/停用中的学习规则；同类项均转人工复核。</p>
           ) : (
@@ -314,7 +314,7 @@ export default async function ThreadReportPage({
             </table>
           )}
           <p className="report-note">
-            规则由人审决策挖掘沉淀，人工激活后才自动复用；停用立即回到人审。每条规则可回溯至来源决策记录。
+            规则由人工确认结论沉淀，人工激活后才自动复用；停用立即回到人审。每条规则可回溯至来源决策记录。
           </p>
         </section>
 
@@ -361,7 +361,7 @@ export default async function ThreadReportPage({
           <div>
             <div className="report-foot-line">编制：价序 · 医药价格治理工作台（人机协同：规则自动处置均可回溯，敏感项均经人工复核）</div>
             <div className="report-foot-line mono">
-              对账口径：政策指纹 v#{metrics.policyFingerprint ?? "—"} · 输出指纹{" "}
+              对账口径：政策依据版本 v#{metrics.policyFingerprint ?? "—"} · 输出留痕{" "}
               {report.latestOutputHash?.slice(0, 12) ?? "—"} · 与工作台数据同源实时生成
             </div>
           </div>

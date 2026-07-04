@@ -18,7 +18,7 @@ export default async function MorningSessionPage({
   if (!session) {
     return (
       <div className="gate-shell">
-        <AppHeader active="价格晨会" />
+        <AppHeader active="今日研判" />
         <main className="morning-empty">
           <h1>未找到晨会：{sessionId}</h1>
           <p>
@@ -62,7 +62,7 @@ export default async function MorningSessionPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格晨会" />
+      <AppHeader active="今日研判" />
       <Breadcrumb items={["价序", "价格晨会", session.session_date, session.id]} />
       <main className="morning-session-shell">
         <MorningSessionPanel session={plain(session)} leads={plain(leads)} replay={plain(replay)} />

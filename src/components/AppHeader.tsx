@@ -3,9 +3,9 @@ import { Flex } from "@radix-ui/themes";
 
 const NAV: { href: string; label: string }[] = [
   { href: "/workspace", label: "工作台" },
-  { href: "/queue", label: "批次队列" },
-  { href: "/import", label: "批次导入" },
-  { href: "/morning", label: "价格晨会" },
+  { href: "/import", label: "补充来源" },
+  { href: "/morning", label: "今日研判" },
+  { href: "/queue", label: "待办核验" },
   { href: "/settings", label: "设置" },
 ];
 
@@ -21,10 +21,10 @@ export function AppHeader({ active }: { active?: string }) {
       >
         <Link href="/workspace" className="app-brand" aria-label="价序首页">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logomark.svg" alt="" width={26} height={26} />
-          <Flex align="center" gap="2" className="app-brand-text">
+          <img src="/brand/logomark.svg" alt="" width={30} height={30} />
+          <Flex align="baseline" gap="3" className="app-brand-text">
             <span className="app-brand-name">价序</span>
-            <span className="app-brand-tag mono">价格复核助手</span>
+            <span className="app-brand-tag">执行价复核工作台</span>
           </Flex>
         </Link>
 
@@ -60,32 +60,36 @@ export function AppHeader({ active }: { active?: string }) {
         .app-brand {
           display: inline-flex;
           align-items: center;
-          gap: 10px;
-          padding: 6px 4px;
+          gap: 12px;
+          padding: 5px 4px;
           border-radius: 8px;
           transition: opacity 140ms var(--ease-soft);
         }
         .app-brand:hover { opacity: 0.85; }
         .app-brand-name {
-          font-size: 15px;
-          font-weight: 600;
-          letter-spacing: -0.01em;
+          font-size: 17px;
+          font-weight: 750;
+          letter-spacing: 0;
           color: var(--gate-ink);
         }
         .app-brand-tag {
-          font-size: 10.5px;
-          font-weight: 500;
-          color: var(--ink-3);
-          padding: 2px 6px;
-          border-radius: 4px;
-          background: var(--surface-sunken);
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
+          font-size: 13px;
+          font-weight: 550;
+          color: var(--gate-ink-soft);
+          letter-spacing: 0;
+          padding-left: 10px;
+          border-left: 1px solid var(--gate-border);
         }
         .app-nav {
           display: flex;
           align-items: center;
           gap: 2px;
+          overflow-x: auto;
+          scrollbar-width: none;
+          max-width: 100%;
+        }
+        .app-nav::-webkit-scrollbar {
+          display: none;
         }
         .app-nav-link {
           padding: 7px 12px;

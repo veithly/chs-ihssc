@@ -11,7 +11,7 @@ export default function MorningPage() {
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格晨会" />
+      <AppHeader active="今日研判" />
       <Breadcrumb items={["价序", "价格晨会"]} />
       <main className="morning-shell">
         <MorningOpenPanel todaySession={plain(today)} recentCount={recent.length} />

@@ -25,7 +25,7 @@ export default async function LeadPage({
   if (!lead) {
     return (
       <div className="gate-shell">
-        <AppHeader active="价格晨会" />
+        <AppHeader active="今日研判" />
         <main className="lead-empty">
           <h1>未找到线索：{leadId}</h1>
           <p>
@@ -75,7 +75,7 @@ export default async function LeadPage({
 
   return (
     <div className="gate-shell">
-      <AppHeader active="价格晨会" />
+      <AppHeader active="今日研判" />
       <Breadcrumb items={["价序", "价格晨会", session?.session_date || lead.session_id, lead.id]} />
       <main className="lead-shell">
         <div className="lead-detail-grid" data-lead-detail>
@@ -166,7 +166,7 @@ export default async function LeadPage({
 
             <section className="gate-card lead-side-card">
               <div className="panel-head tight">
-                <strong>处置回放</strong>
+                <strong>处置过程</strong>
                 <span className="mono">{replay.length} 步</span>
               </div>
               <div style={{ marginTop: 12 }}>

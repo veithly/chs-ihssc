@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     message: body.dryRun
-      ? `（dry-run）解析到 ${result.fetchedCount} 条公告`
+      ? `预览解析到 ${result.fetchedCount} 条公告`
       : `已同步 ${result.fetchedCount} 条公告（新增/变更 ${result.changedCount} 条），留痕于 ${result.ingestionRunId}。`,
     ingestionRunId: result.ingestionRunId,
     fetchedCount: result.fetchedCount,

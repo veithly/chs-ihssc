@@ -57,11 +57,11 @@ const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = 
 
 // 业务对象 tab（V2.2：技术对象名 → 价格治理岗的业务对象名）
 const OBJECT_TABS = [
-  { key: "drift", label: "漂移队列" },
+  { key: "drift", label: "政策变化风险" },
   { key: "task", label: "人审任务" },
   { key: "draft", label: "处置建议卡" },
-  { key: "rule", label: "规则候选" },
-  { key: "fact", label: "政策事实" },
+  { key: "rule", label: "待审规则" },
+  { key: "fact", label: "政策依据" },
   { key: "repair", label: "数据修复" },
 ] as const;
 type ObjectTabKey = (typeof OBJECT_TABS)[number]["key"];
@@ -271,10 +271,16 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     });
     return [...base, ...optimistic];
   }, [runningText, pendingInstruction, snapshot.messages, thread?.id]);
+  const visibleMessageWindow = useMemo(() => {
+    const keepCount = 6;
+    const history = messages.length > keepCount ? messages.slice(0, -keepCount) : [];
+    const current = messages.length > keepCount ? messages.slice(-keepCount) : messages;
+    return { history, current };
+  }, [messages]);
 
   useEffect(() => {
     if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+      messageListRef.current.lastElementChild?.scrollIntoView({ block: "end" });
     }
   }, [messages.length, runningText]);
 
@@ -347,7 +353,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     setError("");
     try {
       if (/\.xlsx$/i.test(file.name)) {
-        throw new Error("当前演示先支持 CSV，XLSX 已预留入口。请先转成 CSV 或使用演示数据源。");
+        throw new Error("当前演示先支持 CSV 表格，电子表格入口已预留。请先另存为 CSV，或使用演示数据源。");
       }
       const csv = await file.text();
       const res = await fetch("/api/workspace/source", {
@@ -400,11 +406,11 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
         snapshot?: WorkspaceSnapshot;
         error_category?: string;
       };
-      if (!data.snapshot) throw new Error(data.message || "Agent 没有返回工作台状态。");
+      if (!data.snapshot) throw new Error(data.message || "价序没有返回本次核查状态。");
       setSnapshot(data.snapshot);
       setComposer("");
       if (!data.ok && data.error_category) {
-        setError(`模型服务异常：${data.error_category}。可确定的核查结果已保留。`);
+        setError(`智能研判异常：${data.error_category}。可确定的核查结果已保留。`);
         setLastRunStatus("degraded");
       } else {
         setLastRunStatus("success");
@@ -419,7 +425,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
         setActiveTab("task");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Agent 运行失败。");
+      setError(err instanceof Error ? err.message : "价序核查失败。");
       setLastRunStatus("failed");
       setLastRunEndedAt(Date.now());
     } finally {
@@ -468,11 +474,11 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             setSnapshot(data.snapshot);
             activeSnapshot = data.snapshot;
           } else {
-            setError(data.message || "无法连接演示数据源，请手动选择数据源后再发送 prompt。");
+            setError(data.message || "无法连接演示数据源，请手动选择数据源后再发起核查。");
             return;
           }
         } catch {
-          setError("无法连接演示数据源，请手动选择数据源后再发送 prompt。");
+          setError("无法连接演示数据源，请手动选择数据源后再发起核查。");
           return;
         }
       }
@@ -529,9 +535,9 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   function interactWithDesktopPet(mood: "idle" | "running" | "needs_user" | "happy" | "worried") {
     if (mood === "running") {
-      messageListRef.current?.scrollTo({
-        top: messageListRef.current.scrollHeight,
+      messageListRef.current?.lastElementChild?.scrollIntoView({
         behavior: "smooth",
+        block: "end",
       });
       return;
     }
@@ -689,10 +695,10 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
         body: JSON.stringify({ decision, reviewer: "业务审核员" }),
       });
       const msgs: Record<string, string> = {
-        approve: "规则已激活：下批 run 中同类非敏感项将自动处置（敏感项仍人审）。",
+        approve: "规则已激活：下批同类非敏感项将自动处置（敏感项仍人审）。",
         reject: "候选已拒绝。",
-        suspend: "规则已停用（可回滚的自动化）：下批 run 同类项立即回人审，停用动作已写入决策日志。",
-        resume: "规则已恢复激活：下批 run 恢复自动处置。",
+        suspend: "规则已停用（可回滚）：下批同类项立即回到人工确认，停用动作已写入决策留痕。",
+        resume: "规则已恢复激活：下批同类项恢复自动处置。",
       };
       setPolicyMsg(msgs[decision] ?? "");
       await refreshPolicy();
@@ -723,7 +729,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   async function syncPolicy() {
     setPolicyBusy(true);
-    setPolicyMsg("正在同步国家医保局公告（L0 公开源，hash 留痕）…");
+    setPolicyMsg("正在同步国家医保局公开公告，并保存来源留痕…");
     try {
       const res = await fetch("/api/workspace/policy-sync", {
         method: "POST",
@@ -751,7 +757,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       const j = await res.json();
       setPolicyMsg(
         j.ok
-          ? "政策事实已变更：HC-LNS-902 集采中选价 640→560（source_hash 已刷新）。点 hero prompt 重跑，即可看到存量执行价漂移。"
+          ? "政策依据已变更：HC-LNS-902 集采中选价 640→560。再次点击常用任务核查，即可看到存量执行价风险。"
           : j.message,
       );
       await refreshPolicy();
@@ -807,8 +813,8 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               <span className="provider">
                 <span className={`dot ${providerStatus.configured ? "ok" : "warn"}`} aria-hidden />
                 {providerStatus.configured
-                  ? "模型服务已接通"
-                  : "模型服务未接通"}
+                  ? "智能研判已接通"
+                  : "智能研判未接通"}
               </span>
               {policy.metrics?.policyFingerprint && (
                 <>
@@ -816,7 +822,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
                   <span
                     className="policy-version-chip"
                     data-policy-version
-                    title={`政策事实版本指纹：任一条政策事实变更，指纹都会变化；每次核查结果可对账`}
+                    title={`政策依据版本：任一条政策依据变更，版本都会变化；每次核查结果可对账`}
                   >
                     政策 v#{policy.metrics.policyFingerprint}
                   </span>
@@ -898,16 +904,21 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
               <div className="empty-conversation">
                 <ReaderIcon />
                 <strong>先接入一批机构执行价</strong>
-                <span>上传 CSV，或连接右侧演示数据源。接入后点一句常用任务，价序会先核政策、再给出处置对象。</span>
+                <span>上传表格，或连接右侧演示数据源。接入后点一句常用任务，价序会先核政策、再给出处置对象。</span>
               </div>
             ) : (
               <>
                 {/* 严格按时间顺序渲染；最近一次 run 的执行步骤内联在它的回答之前，像 coding agent */}
-                {messages.map((m, i) => (
-                  <Fragment key={m.id}>
-                    {i === stepsBeforeIndex && <AgentStepsMessage events={events} running={false} />}
+                {visibleMessageWindow.history.length > 0 && (
+                  <ConversationHistorySummary messages={visibleMessageWindow.history} />
+                )}
+                {visibleMessageWindow.current.map((m, i) => {
+                  const absoluteIndex = visibleMessageWindow.history.length + i;
+                  return (
+                    <Fragment key={m.id}>
+                      {absoluteIndex === stepsBeforeIndex && <AgentStepsMessage events={events} running={false} />}
                     <MessageBubble message={m} />
-                    {i === proposalAfterIndex && (
+                    {absoluteIndex === proposalAfterIndex && (
                       <ProposalCardsMessage
                         key={`proposal-${latestRunId}`}
                         repairs={repairs}
@@ -918,8 +929,9 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
                         onDecideTask={decideTask}
                       />
                     )}
-                  </Fragment>
-                ))}
+                    </Fragment>
+                  );
+                })}
                 {stepsBeforeIndex === messages.length && !isRunning && (
                   <>
                     <AgentStepsMessage events={events} running={false} />
@@ -942,7 +954,7 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
             )}
           </div>
 
-          <section className="workspace-prompt-rail" aria-label="内置业务 prompt">
+          <section className="workspace-prompt-rail" aria-label="内置业务任务">
             <span className="rail-label mono" aria-hidden>
               <LightningBoltIcon /> 常用任务
             </span>
@@ -1077,7 +1089,7 @@ function SourcePanel({
       <label className="upload-zone" htmlFor="workspace-upload">
         <FileTextIcon />
         <span>上传机构执行价表</span>
-        <small>当前演示支持 CSV；XLSX 入口已预留。</small>
+        <small>当前演示支持 CSV 表格；电子表格入口已预留。</small>
       </label>
       <a
         className="sample-csv-link mono"
@@ -1086,7 +1098,7 @@ function SourcePanel({
         data-sample-csv
         title="官方结算表口径表头（含剂型/规格/结算数量等非治理列），可直接回传演示字段映射与零售比价。"
       >
-        ↓ 官方结算表表头样例 CSV（含零售无编码 / 1.3 倍比价行）
+        ↓ 官方结算表表头样例（含零售无编码 / 1.3 倍比价行）
       </a>
       <input
         ref={fileInputRef}
@@ -1195,7 +1207,7 @@ function BusinessObjectsPanel({
     <section className="workspace-panel generated-panel" data-generated-object>
       <div className="panel-head tight">
         <strong>核查结果与待办</strong>
-        <span className="mono run-id">{latestRunId ? `记录 ${latestRunId.slice(0, 10)}` : "等待核查"}</span>
+        <span className="mono run-id">{latestRunId ? `核查记录 ${latestRunId.slice(0, 10)}` : "等待核查"}</span>
       </div>
 
       {needsUser && (
@@ -1724,7 +1736,7 @@ function RuleCandidatesTab({
         <LightningBoltIcon /> 待审候选（{pending.length}）
       </div>
       {pending.length === 0 ? (
-        <div className="policy-empty">暂无待审候选。人审确认几条同类处置后，点上方挖掘。</div>
+        <div className="policy-empty">暂无待审规则。人工确认几条同类处置后，点上方整理。</div>
       ) : (
         pending.slice(0, 5).map((r) => {
           const trigger = safeJson(r.trigger_json);
@@ -1740,9 +1752,9 @@ function RuleCandidatesTab({
                 自动处置为「{String(action.task_type ?? "?")}」→ {String(action.owner_role ?? "?")} · {String(action.priority ?? "?")}
               </div>
               <div className="rc-meta">
-                置信度 {(r.confidence * 100).toFixed(0)}% · 同类样本 {r.support_count} ·{" "}
+                可信度 {(r.confidence * 100).toFixed(0)}% · 同类样本 {r.support_count} ·{" "}
                 <span className="rc-src" title="来源人审决策可逐条追溯">
-                  来源 {srcCount} 条人审决策
+                  来源 {srcCount} 条人工确认
                 </span>
                 {r.provenance_run_id ? <span className="mono"> · {r.provenance_run_id.slice(0, 14)}</span> : null}
               </div>
@@ -1865,10 +1877,10 @@ function PolicyFactsTab({
       <div
         className="policy-source-line"
         data-policy-source
-        title="政策接入链路：公开公告抓取（外网）或本地文件上传（内网）→ 留痕保存 → 人审确认 → 生效为政策依据。"
+        title="政策采集链路：同步公告或上传文件 → 留痕保存 → 人审确认 → 生效为政策依据。只取公开公告；内网环境可上传本地政策文件。"
       >
         <span className={`src-dot ${ingestion?.status === "succeeded" ? "ok" : ""}`} aria-hidden />
-        <span className="src-name">政策接入 · 公开公告 / 内网上传</span>
+        <span className="src-name">国家医保局公告 · 公开来源</span>
         <span className="src-meta mono">
           {ingestion
             ? `上次接入 ${ingestion.finished_at ? ingestion.finished_at.slice(5, 16).replace("T", " ") : "—"} · 解析 ${ingestion.fetched_count} · 新增 ${ingestion.changed_count}`
@@ -1916,7 +1928,7 @@ function PolicyFactsTab({
             </div>
             <div className="fact-row-prices mono">
               中选 {f.collective_price ?? "—"} · 最高 {f.ceiling_price ?? "—"} · 参考 {f.reference_price ?? "—"}
-              {f.source_hash ? <span className="fact-hash" title={`版本指纹 ${f.source_hash}`}> · v#{f.source_hash.slice(0, 8)}</span> : null}
+              {f.source_hash ? <span className="fact-hash" title={`来源留痕编号 ${f.source_hash}`}> · 依据#{f.source_hash.slice(0, 8)}</span> : null}
             </div>
           </div>
         ))
@@ -1941,7 +1953,7 @@ function PolicyFactsTab({
                 {a.title}
               </div>
               <div className="artifact-meta mono">
-                {a.published_at ?? "—"} · hash {a.content_hash.slice(0, 10)} · {a.artifact_type ?? "html"}
+                {a.published_at ?? "—"} · 留痕 {a.content_hash.slice(0, 10)} · {a.artifact_type ?? "html"}
               </div>
               {suggested.length > 0 && (
                 <div className="artifact-suggested" data-artifact-suggested>
@@ -2079,7 +2091,7 @@ function GovernanceMetricsStrip({ metrics }: { metrics: GovernanceMetrics }) {
       key: "auto-rate",
       label: "自动分流率",
       value: routed > 0 ? `${(metrics.autoRate * 100).toFixed(0)}%` : "—",
-      hint: `自动处置 ${metrics.autoApproved} / 系统分流 ${routed}；由激活规则 + 护栏决定`,
+      hint: `自动处置 ${metrics.autoApproved} / 系统分流 ${routed}；由已生效规则和人工边界共同决定`,
     },
     {
       key: "rules",
@@ -2091,13 +2103,13 @@ function GovernanceMetricsStrip({ metrics }: { metrics: GovernanceMetrics }) {
       key: "drift",
       label: "漂移闭环",
       value: `${metrics.driftsResolved}/${metrics.driftsDetected}`,
-      hint: `检出 ${metrics.driftsDetected} 条政策漂移，已复核闭环 ${metrics.driftsResolved} 条，在办 ${metrics.driftsOpen} 条`,
+      hint: `检出 ${metrics.driftsDetected} 条政策变化风险，已复核闭环 ${metrics.driftsResolved} 条，在办 ${metrics.driftsOpen} 条`,
     },
     {
       key: "human",
       label: "人审决策",
       value: `${metrics.humanApproved + metrics.humanRejected}`,
-      hint: `批准 ${metrics.humanApproved} · 驳回 ${metrics.humanRejected}；每条都是规则挖掘的学习样本`,
+      hint: `批准 ${metrics.humanApproved} · 驳回 ${metrics.humanRejected}；每条都可沉淀为同类处置经验`,
     },
     {
       key: "saved",
@@ -2114,7 +2126,7 @@ function GovernanceMetricsStrip({ metrics }: { metrics: GovernanceMetrics }) {
           <span className="metric-label">{k.label}</span>
         </div>
       ))}
-      <div className="metric-cell metric-note mono" title="指标全部由本地库实时计算，可与决策日志逐条对账">
+      <div className="metric-cell metric-note mono" title="指标全部按本次留痕实时计算，可与决策记录逐条对账">
         实时 · 可对账
       </div>
     </section>
@@ -2126,7 +2138,7 @@ function AuditStrip({ decisions }: { decisions: DecisionRow[] }) {
   if (decisions.length === 0) return null;
   return (
     <div className="audit-strip" data-audit-strip>
-      <div className="audit-strip-title mono">审批日志 · approval_decision_log</div>
+      <div className="audit-strip-title mono">决策留痕</div>
       {decisions.slice(0, 5).map((d) => (
         <div key={d.id} className="audit-row mono" data-audit-row>
           <span className={`audit-decision ${d.decision}`}>{d.decision}</span>
@@ -2190,7 +2202,7 @@ function PetSyncStrip({
     },
     degraded: {
       title: "小序保留了可确定结果",
-      detail: "模型服务异常时，字段、归并、规则判断等确定性结果仍可查看。",
+      detail: "智能研判异常时，字段、归并、规则判断等可确定结果仍可查看。",
     },
     ready: {
       title: "小序已同步结果",
@@ -2198,7 +2210,7 @@ function PetSyncStrip({
     },
     idle: {
       title: "小序会跟随本次核查",
-      detail: "开始核查后，它会根据运行、待确认和结果状态提示你下一步。",
+      detail: "开始核查后，它会根据核查、待确认和结果状态提示你下一步。",
     },
   };
   return (
@@ -2236,6 +2248,29 @@ function StageIcon({ name, running }: { name: string; running?: boolean }) {
     case "learn": return <LightningBoltIcon />;
     default: return <CheckCircledIcon />;
   }
+}
+
+function ConversationHistorySummary({ messages }: { messages: ConversationMessage[] }) {
+  const userCount = messages.filter((m) => m.role === "user").length;
+  const assistantCount = messages.filter((m) => m.role === "assistant").length;
+  const last = messages.at(-1);
+  const lastTime = last?.created_at ? last.created_at.slice(5, 16).replace("T", " ") : "";
+  return (
+    <details className="conversation-history-summary">
+      <summary>
+        <span className="history-summary-title">已收起历史对话</span>
+        <span className="history-summary-meta mono">
+          {messages.length} 条 · 你 {userCount} / 价序 {assistantCount}
+          {lastTime ? ` · ${lastTime}` : ""}
+        </span>
+      </summary>
+      <div className="history-message-list">
+        {messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function MessageBubble({ message }: { message: ConversationMessage }) {

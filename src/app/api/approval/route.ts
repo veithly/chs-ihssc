@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { decideApproval } from "@/lib/repo";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, message: "请求体不是合法 JSON。" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "请求格式不正确，请重新提交。" }, { status: 400 });
   }
   if (!body.approvalId || (body.decision !== "approved" && body.decision !== "rejected")) {
     return NextResponse.json(
