@@ -29,7 +29,7 @@ export function DesktopPetToggle() {
     <label className="desktop-pet-toggle">
       <span>
         <strong>小序陪伴</strong>
-        <small>在工作台右下角显示动态桌面小宠物，跟随 agent 状态轻微变化。</small>
+        <small>在页面右下角显示动态桌面小宠物，跟随核价流程状态轻微变化。</small>
       </span>
       <input
         type="checkbox"

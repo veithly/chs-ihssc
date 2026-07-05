@@ -4347,12 +4347,13 @@ a {
 }
 
 .desktop-pet {
+  --pet-size: 132px;
   position: fixed;
   left: 92%;
   top: 80%;
   z-index: 40;
-  width: 116px;
-  height: 116px;
+  width: var(--pet-size);
+  height: var(--pet-size);
   transform: translate(-50%, -50%);
   cursor: grab;
   user-select: none;
@@ -4401,16 +4402,16 @@ a {
 
 .desktop-pet-sprite {
   position: relative;
-  width: 116px;
-  height: 116px;
+  width: var(--pet-size);
+  height: var(--pet-size);
   transform-origin: 50% 86%;
   filter: drop-shadow(0 14px 20px rgba(15, 23, 42, 0.16));
 }
 
 .desktop-pet-img {
   display: block;
-  width: 116px;
-  height: 116px;
+  width: var(--pet-size);
+  height: var(--pet-size);
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -4418,10 +4419,10 @@ a {
 
 .desktop-pet-status-dot {
   position: absolute;
-  right: 19px;
-  bottom: 18px;
-  width: 13px;
-  height: 13px;
+  right: 21px;
+  bottom: 21px;
+  width: 14px;
+  height: 14px;
   border: 3px solid #fff;
   border-radius: 999px;
   background: #22c55e;
@@ -4514,8 +4515,8 @@ a {
 
 .desktop-pet-spinner {
   position: absolute;
-  right: 9px;
-  top: 11px;
+  right: 12px;
+  top: 13px;
   display: grid;
   place-items: center;
   width: 22px;
@@ -4536,8 +4537,8 @@ a {
 
 .desktop-pet-question {
   position: absolute;
-  right: 16px;
-  top: 2px;
+  right: 19px;
+  top: 3px;
   display: grid;
   place-items: center;
   width: 25px;
@@ -4561,9 +4562,9 @@ a {
   animation: pet-sparkle 0.9s var(--ease-soft, ease) infinite;
 }
 
-.desktop-pet-spark.spark-a { left: 17px; top: 20px; }
-.desktop-pet-spark.spark-b { right: 15px; top: 18px; width: 12px; height: 12px; animation-delay: 130ms; }
-.desktop-pet-spark.spark-c { right: 28px; bottom: 20px; width: 8px; height: 8px; animation-delay: 260ms; }
+.desktop-pet-spark.spark-a { left: 20px; top: 23px; }
+.desktop-pet-spark.spark-b { right: 18px; top: 21px; width: 12px; height: 12px; animation-delay: 130ms; }
+.desktop-pet-spark.spark-c { right: 32px; bottom: 24px; width: 8px; height: 8px; animation-delay: 260ms; }
 
 .desktop-pet-sweat {
   position: absolute;
@@ -4577,14 +4578,14 @@ a {
   animation: pet-sweat 1s var(--ease-soft, ease) infinite;
 }
 
-.desktop-pet-sweat.sweat-a { right: 22px; top: 30px; }
-.desktop-pet-sweat.sweat-b { right: 12px; top: 48px; width: 7px; height: 10px; animation-delay: 160ms; }
+.desktop-pet-sweat.sweat-a { right: 25px; top: 34px; }
+.desktop-pet-sweat.sweat-b { right: 15px; top: 54px; width: 7px; height: 10px; animation-delay: 160ms; }
 
 .desktop-pet-blink {
   position: absolute;
-  left: 28px;
-  right: 28px;
-  top: 47px;
+  left: 32px;
+  right: 32px;
+  top: 54px;
   height: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);

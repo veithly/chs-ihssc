@@ -28,7 +28,7 @@ import type {
   WorkspaceSnapshot,
 } from "@/lib/types";
 import { DEMO_SOURCES } from "@/lib/workspace/demoSources";
-import { DesktopPet } from "@/components/DesktopPet";
+import { publishDesktopPetState, type PetMood, type PetWorkState } from "@/components/DesktopPet";
 
 // V2.2 收窄：hero prompt 主打"政策变更后的存量机构执行价复核"，其余为扩展场景。
 const PROMPTS: { key: string; label: string; text: string; hero?: boolean }[] = [
@@ -533,7 +533,46 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     (r) => r.status === "pending_review" || r.status === "active" || r.status === "suspended",
   );
 
-  function interactWithDesktopPet(mood: "idle" | "running" | "needs_user" | "happy" | "worried") {
+  const petWorkState = useMemo<PetWorkState>(() => {
+    if (busy === "run") return "running";
+    if (!dataset) return "source_empty";
+    if (lastRunStatus === "failed") return "failed";
+    if (lastRunStatus === "degraded") return "degraded";
+    if (needsUser || tasks.length > 0) return "needs_human_review";
+    if (openDrifts.length > 0) return "drift_detected";
+    if (visibleRules.some((r) => r.status === "pending_review")) return "rule_candidate_ready";
+    if (repairs.length + mappings.length + groups.length > 0) return "repair_ready";
+    if (drafts.length > 0 || lastRunStatus === "success") return "archived_ready";
+    return "source_ready";
+  }, [
+    busy,
+    dataset,
+    drafts.length,
+    groups.length,
+    lastRunStatus,
+    mappings.length,
+    needsUser,
+    openDrifts.length,
+    repairs.length,
+    tasks.length,
+    visibleRules,
+  ]);
+
+  function openObjectTab(tab: ObjectTabKey) {
+    setActiveTab(tab);
+    requestAnimationFrame(() => {
+      document.querySelector("[data-generated-object]")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
+  function focusComposer() {
+    requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  function interactWithDesktopPet(state: PetWorkState, mood: PetMood) {
     if (mood === "running") {
       messageListRef.current?.lastElementChild?.scrollIntoView({
         behavior: "smooth",
@@ -541,20 +580,48 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
       });
       return;
     }
-    if (mood === "needs_user") {
-      setActiveTab("task");
+
+    if (state === "source_empty" || state === "source_ready" || state === "global_idle") {
+      focusComposer();
       return;
     }
-    if (mood === "happy") {
-      const next = AUTO_SWITCH_ORDER.find((tab) => objectCounts[tab] > 0);
-      if (next) setActiveTab(next);
+
+    if (state === "mapping_done" || state === "repair_ready") {
+      openObjectTab("repair");
       return;
     }
-    if (mood === "worried") {
-      setActiveTab(openDrifts.length > 0 ? "drift" : "task");
+
+    if (state === "policy_checking") {
+      openObjectTab("fact");
       return;
     }
-    composerRef.current?.focus();
+
+    if (state === "drift_detected") {
+      openObjectTab("drift");
+      return;
+    }
+
+    if (state === "needs_human_review") {
+      openObjectTab("task");
+      return;
+    }
+
+    if (state === "rule_candidate_ready") {
+      openObjectTab("rule");
+      return;
+    }
+
+    if (state === "archived_ready") {
+      openObjectTab(objectCounts.draft > 0 ? "draft" : AUTO_SWITCH_ORDER.find((tab) => objectCounts[tab] > 0) ?? "draft");
+      return;
+    }
+
+    if (state === "failed" || state === "degraded" || mood === "worried") {
+      openObjectTab(openDrifts.length > 0 ? "drift" : "task");
+      return;
+    }
+
+    focusComposer();
   }
 
   const objectCounts: Record<ObjectTabKey, number> = {
@@ -565,6 +632,29 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
     fact: policy.facts.length,
     repair: mappings.length + repairs.length + groups.length,
   };
+
+  useEffect(() => {
+    publishDesktopPetState({
+      state: petWorkState,
+      context: {
+        driftCount: objectCounts.drift,
+        taskCount: objectCounts.task,
+        draftCount: objectCounts.draft,
+        ruleCount: objectCounts.rule,
+        repairCount: objectCounts.repair,
+      },
+      href: "/workspace",
+    });
+
+    function handlePetAction(event: Event) {
+      const detail = (event as CustomEvent<{ state?: PetWorkState; mood?: PetMood }>).detail;
+      interactWithDesktopPet(detail?.state ?? petWorkState, detail?.mood ?? "idle");
+    }
+
+    window.addEventListener("chs:desktop-pet-action", handlePetAction);
+    return () => window.removeEventListener("chs:desktop-pet-action", handlePetAction);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [petWorkState, objectCounts.drift, objectCounts.task, objectCounts.draft, objectCounts.rule, objectCounts.repair]);
 
   // 仅在 run 刚结束的那一刻检查：当前 tab 为空就切到第一个有产物的 tab。
   // 平时手动点空 tab（例如挖掘前的规则候选）不能被弹走。
@@ -788,20 +878,6 @@ export function WorkspaceClient({ initialSnapshot, providerStatus }: WorkspaceCl
 
   return (
     <main className="workspace-shell" data-workspace data-visual-lane="agent-workbench">
-      <DesktopPet
-        isRunning={isRunning}
-        threadState={threadState}
-        lastRunStatus={lastRunStatus}
-        lastRunEndedAt={lastRunEndedAt}
-        context={{
-          driftCount: objectCounts.drift,
-          taskCount: objectCounts.task,
-          draftCount: objectCounts.draft,
-          ruleCount: objectCounts.rule,
-          repairCount: objectCounts.repair,
-        }}
-        onInteract={interactWithDesktopPet}
-      />
       <section className="workspace-band">
         <div className="workspace-band-left">
           <img className="agent-mark-img" src="/brand/logomark.svg" alt="" aria-hidden />

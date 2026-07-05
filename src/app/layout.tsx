@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Theme } from "@radix-ui/themes";
+import { DesktopPet } from "@/components/DesktopPet";
 import "@radix-ui/themes/styles.css";
 import "./globals.css";
 
@@ -43,6 +44,7 @@ export default function RootLayout({
           panelBackground="solid"
         >
           {children}
+          <DesktopPet />
         </Theme>
       </body>
     </html>
