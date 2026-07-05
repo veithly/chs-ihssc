@@ -191,14 +191,14 @@ export function confirmPolicyArtifact(input: ConfirmArtifactInput): {
     | { id: string; url: string; title: string; content_hash: string; status: string }
     | null;
   if (!artifact) {
-    return { ok: false, message: "未找到该 artifact。" };
+    return { ok: false, message: "未找到该公告。" };
   }
   if (artifact.status !== "fetched") {
-    return { ok: false, message: `artifact 状态为 ${artifact.status}，不能重复确认。` };
+    return { ok: false, message: "该公告已确认过，不能重复确认。" };
   }
   const itemCode = input.itemCode.trim();
   if (!itemCode) {
-    return { ok: false, message: "缺少 itemCode（结构化事实必须挂到医保项目编码）。" };
+    return { ok: false, message: "缺少医保项目编码，无法生效。" };
   }
 
   const now = workspaceNow();
@@ -221,7 +221,7 @@ export function confirmPolicyArtifact(input: ConfirmArtifactInput): {
 
   return {
     ok: true,
-    message: `已确认 artifact，政策事实 ${itemCode} 生效（source_hash=${artifact.content_hash}）。下次 run 将按新 baseline 检出漂移。`,
+    message: `已人审确认，${itemCode} 的政策口径已生效（依据留痕 #${artifact.content_hash.slice(0, 8)}）。下次核查将按新口径比对，超出的执行价会被点名。`,
     factId,
     driftExpected: true,
   };
@@ -248,9 +248,9 @@ export function confirmPolicyArtifactFacts(input: {
     .get({ id: input.artifactId }) as
     | { id: string; url: string; title: string; content_hash: string; status: string }
     | null;
-  if (!artifact) return { ok: false, message: "未找到该 artifact。" };
+  if (!artifact) return { ok: false, message: "未找到该公告。" };
   if (artifact.status !== "fetched") {
-    return { ok: false, message: `artifact 状态为 ${artifact.status}，不能重复确认。` };
+    return { ok: false, message: "该公告已确认过，不能重复确认。" };
   }
   const facts = input.facts.filter((f) => f.item_code?.trim());
   if (facts.length === 0) {
@@ -273,7 +273,7 @@ export function confirmPolicyArtifactFacts(input: {
 
   return {
     ok: true,
-    message: `已人审确认，${facts.length} 条政策事实生效（source_hash=${artifact.content_hash}）。下次 run 将按新 baseline 检出漂移。`,
+    message: `已人审确认，${facts.length} 条政策口径已生效（依据留痕 #${artifact.content_hash.slice(0, 8)}）。下次核查将按新口径比对，超出的执行价会被点名。`,
     confirmedCount: facts.length,
     driftExpected: true,
   };

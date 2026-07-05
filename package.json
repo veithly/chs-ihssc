@@ -17,6 +17,7 @@
     "deck:export": "node scripts/export_deck.mjs",
     "package:win": "node scripts/package_offline_win.mjs",
     "video:demo": "node scripts/record_demo.mjs",
+    "video:full": "node scripts/record_full_demo.mjs",
     "build:opennext": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare deploy"

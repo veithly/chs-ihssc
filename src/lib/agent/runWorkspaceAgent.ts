@@ -104,7 +104,7 @@ export async function runWorkspaceAgent(
   events.push({
     phase: "tools",
     title: "执行价格治理工具",
-    detail: `字段映射 ${toolResult.stats.mappedFields} 个，修复 patch ${toolResult.stats.repairs} 条，归并组 ${toolResult.stats.groups} 个，流程候选 ${toolResult.stats.dispositions} 条。`,
+    detail: `字段映射 ${toolResult.stats.mappedFields} 个，修复建议 ${toolResult.stats.repairs} 条，归并组 ${toolResult.stats.groups} 个，流程候选 ${toolResult.stats.dispositions} 条。`,
     ok: true,
   });
 
@@ -304,7 +304,7 @@ function buildAssistantAnswer(
   const pendingFix = tools.repairs.length - autoFixed;
   const lines = [
     providerAnswer ||
-      `我已先把这批数据跑完：映射 ${tools.stats.mappedFields} 个字段，生成 ${tools.stats.repairs} 条修复 patch，归并 ${tools.stats.groups} 个同品同规组，并创建 ${tools.stats.tasks} 个流程对象。`,
+      `我已先把这批数据跑完：映射 ${tools.stats.mappedFields} 个字段，生成 ${tools.stats.repairs} 条修复建议，归并 ${tools.stats.groups} 个同品同规组，并创建 ${tools.stats.tasks} 个流程对象。`,
   ];
   if (autoFixed > 0 || pendingFix > 0) {
     const parts: string[] = [];
@@ -317,7 +317,7 @@ function buildAssistantAnswer(
     lines.push(`需要你确认一件事：${question}`);
   }
   lines.push(
-    `已落库对象：字段映射、修复 patch、归并组、单位换算、价格口径、处置项、机构草稿和流程任务。`,
+    `已落库对象：字段映射、数据修复、同品归并、单位换算、价格口径、异常处置、机构核实草稿和复核任务。`,
   );
   return lines.filter(Boolean).join("\n");
 }
@@ -614,7 +614,7 @@ function persistRun(input: {
   insertRunEvent(db, input.threadId, input.runId, "mutate", "写入工作对象", "会话、字段映射、修复、归并、草稿和流程任务已写入 SQLite。", true, {
     stats: input.toolResult.stats,
   });
-  insertRunEvent(db, input.threadId, input.runId, "verify", "可复查结果", `run=${input.runId}, hash=${input.outputHash}，重新打开工作台可读取生成对象。`, true, {
+  insertRunEvent(db, input.threadId, input.runId, "verify", "可复查结果", `本次核查已编号留痕（${input.runId}，指纹 #${String(input.outputHash).slice(0, 8)}），重新打开工作台可逐条复查。`, true, {
     output_hash: input.outputHash,
   });
 

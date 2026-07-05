@@ -84,6 +84,71 @@ const REPAIR_FIELD_LABELS: Record<string, string> = {
   package_unit: "包装单位",
 };
 
+// ===== 业务语言映射：界面上不暴露内部状态码/问题码 =====
+const TASK_STATUS_LABELS: Record<string, string> = {
+  workflow_pending_review: "待人审",
+};
+const taskStatusLabel = (s: string) => TASK_STATUS_LABELS[s] ?? s;
+
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  date_anomaly: "价格日期异常",
+  item_catalog_miss: "未命中价格目录",
+  item_code_correctable: "编码可标化",
+  item_name_mismatch: "名称与目录不一致",
+  price_invalid: "单价格式异常",
+  price_over_ceiling: "超最高有效价",
+  collective_price_overrun: "集采价超容忍",
+  collective_not_landed: "集采未落地",
+  procurement_channel_unknown: "渠道未知",
+  price_spike: "参考价涨幅异常",
+  schema_field_missing: "价格字段缺失",
+  retail_over_1p3x: "超零售集中价1.3倍",
+  retail_price_no_code: "零售价无编码（名称已对应）",
+  retail_price_unmatched: "零售价无编码（名称未对应）",
+  spec_over_ratio: "差比价折算超限",
+  price_below_floor: "参考价异常低价",
+};
+const issueTypeLabel = (t: unknown) => ISSUE_TYPE_LABELS[String(t)] ?? String(t ?? "—");
+
+const SEVERITY_LABELS: Record<string, string> = { high: "高", medium: "中", low: "低" };
+const severityLabel = (s: unknown) => SEVERITY_LABELS[String(s)] ?? String(s ?? "—");
+
+const DECISION_LABELS: Record<string, string> = {
+  auto_approved: "自动处置",
+  needs_human: "转人审",
+  human_approved: "人工批准",
+  human_rejected: "人工驳回",
+  ratify_rule: "激活规则",
+  reject_rule: "拒绝规则",
+  suspend_rule: "停用规则",
+  resume_rule: "恢复规则",
+  confirm_fact: "确认政策事实",
+};
+const DECISION_TARGET_LABELS: Record<string, string> = {
+  workflow_task: "任务",
+  repair_patch: "修复",
+  rule_candidate: "规则",
+  policy_artifact: "公告",
+  disposition_item: "处置",
+  disposition: "处置",
+};
+const ACTOR_TYPE_LABELS: Record<string, string> = { agent: "系统", system: "系统", human: "人工" };
+const ACTOR_ID_LABELS: Record<string, string> = {
+  guardrails: "护栏规则",
+  learned_rule_engine: "已激活规则",
+};
+
+const MAPPING_STATUS_LABELS: Record<string, string> = {
+  inferred: "自动识别",
+  needs_user: "待确认",
+  ignored: "忽略",
+};
+const GROUP_STATUS_LABELS: Record<string, string> = {
+  ready: "可比价",
+  needs_user: "待确认",
+  excluded: "不参与比价",
+};
+
 function threadStateLabel(state: string) {
   if (state === "needs_user") return "待人工确认";
   if (state === "running") return "正在核查";
@@ -1465,7 +1530,7 @@ function TaskReviewTab({
           <div key={task.id} className="object-row task-row" data-task-row data-task-id={task.id} data-task-status={task.status}>
             <strong>
               {task.task_type} · {priorityLabel(task.priority)}
-              <span className={`task-status-chip mono s-${task.status}`}>{task.status}</span>
+              <span className={`task-status-chip mono s-${task.status}`}>{taskStatusLabel(task.status)}</span>
             </strong>
             <span>
               {task.title}：{task.detail}
@@ -1823,17 +1888,16 @@ function RuleCandidatesTab({
           return (
             <div key={r.id} className="rule-candidate-item" data-rule-candidate>
               <div className="rc-trigger mono">
-                条件：问题={String(trigger.issue_type ?? "?")} · 严重度={String(trigger.severity ?? "?")}
+                条件：{issueTypeLabel(trigger.issue_type)} · {severityLabel(trigger.severity)}严重度
               </div>
               <div className="rc-action mono">
-                自动处置为「{String(action.task_type ?? "?")}」→ {String(action.owner_role ?? "?")} · {String(action.priority ?? "?")}
+                自动处置为「{String(action.task_type ?? "?")}」→ {String(action.owner_role ?? "?")} · {priorityLabel(String(action.priority ?? ""))}优先
               </div>
               <div className="rc-meta">
                 可信度 {(r.confidence * 100).toFixed(0)}% · 同类样本 {r.support_count} ·{" "}
                 <span className="rc-src" title="来源人审决策可逐条追溯">
                   来源 {srcCount} 条人工确认
                 </span>
-                {r.provenance_run_id ? <span className="mono"> · {r.provenance_run_id.slice(0, 14)}</span> : null}
               </div>
               {dry && (
                 <div className="rc-dryrun mono" data-rule-dryrun>
@@ -1869,7 +1933,7 @@ function RuleCandidatesTab({
             return (
               <div key={r.id} className="active-rule-item" data-active-rule>
                 <span className="mono">
-                  {String(trigger.issue_type ?? "?")}/{String(trigger.severity ?? "?")} → {String(action.task_type ?? "?")}
+                  {issueTypeLabel(trigger.issue_type)}（{severityLabel(trigger.severity)}）→ 自动{String(action.task_type ?? "?")}
                 </span>
                 <span className="hit-count">命中 {r.hit_count} 次</span>
                 <button
@@ -1898,7 +1962,7 @@ function RuleCandidatesTab({
             return (
               <div key={r.id} className="active-rule-item suspended" data-suspended-rule>
                 <span className="mono">
-                  {String(trigger.issue_type ?? "?")}/{String(trigger.severity ?? "?")} → {String(action.task_type ?? "?")}
+                  {issueTypeLabel(trigger.issue_type)}（{severityLabel(trigger.severity)}）→ 自动{String(action.task_type ?? "?")}
                 </span>
                 <span className="hit-count">曾命中 {r.hit_count} 次</span>
                 <button
@@ -2127,8 +2191,8 @@ function RepairEvidenceTab({
           <div key={m.id}>
             <span>{m.source_column}</span>
             <ArrowRightIcon />
-            <strong>{m.target_field || "忽略"}</strong>
-            <em className="mono">{m.status}</em>
+            <strong>{m.target_field ? REPAIR_FIELD_LABELS[m.target_field] ?? m.target_field : "忽略"}</strong>
+            <em className="mono">{MAPPING_STATUS_LABELS[m.status] ?? m.status}</em>
           </div>
         ))}
       </div>
@@ -2137,7 +2201,7 @@ function RepairEvidenceTab({
         {repairs.slice(0, 6).map((r) => (
           <div key={r.id} className="object-row">
             <strong className="mono">
-              第 {r.row_index + 1} 行 · {r.field}
+              第 {r.row_index + 1} 行 · {REPAIR_FIELD_LABELS[r.field] ?? r.field}
             </strong>
             <span className="mono">
               {r.before_value || "空"} → {r.after_value || "待确认"}
@@ -2151,7 +2215,7 @@ function RepairEvidenceTab({
           <div key={g.id} className="object-row">
             <strong>{g.item_name}</strong>
             <span className="mono">
-              {safeArray(g.row_indexes_json).length} 行 · {g.status}
+              {safeArray(g.row_indexes_json).length} 行 · {GROUP_STATUS_LABELS[g.status] ?? g.status}
             </span>
           </div>
         ))}
@@ -2218,9 +2282,14 @@ function AuditStrip({ decisions }: { decisions: DecisionRow[] }) {
       <div className="audit-strip-title mono">决策留痕</div>
       {decisions.slice(0, 5).map((d) => (
         <div key={d.id} className="audit-row mono" data-audit-row>
-          <span className={`audit-decision ${d.decision}`}>{d.decision}</span>
-          <span className="audit-target">{d.target_type}:{d.target_id.slice(0, 14)}</span>
-          <span className="audit-actor">{d.actor_type}{d.actor_id ? `·${d.actor_id}` : ""}</span>
+          <span className={`audit-decision ${d.decision}`}>{DECISION_LABELS[d.decision] ?? d.decision}</span>
+          <span className="audit-target">
+            {DECISION_TARGET_LABELS[d.target_type] ?? d.target_type} {d.target_id.slice(0, 14)}
+          </span>
+          <span className="audit-actor">
+            {ACTOR_TYPE_LABELS[d.actor_type] ?? d.actor_type}
+            {d.actor_id ? `·${ACTOR_ID_LABELS[d.actor_id] ?? d.actor_id}` : ""}
+          </span>
           <span className="audit-time">{d.created_at.slice(11, 19)}</span>
         </div>
       ))}

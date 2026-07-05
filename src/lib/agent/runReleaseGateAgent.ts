@@ -431,12 +431,12 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
     ),
   ];
   if (corrections > 0)
-    toolCalls.push(tool("correction_writer", "纠错提案写入", `${corrections} 行可纠错`, `写入 ${corrections} 条 correction_proposal(pending)`, true));
+    toolCalls.push(tool("correction_writer", "纠错提案写入", `${corrections} 行可纠错`, `生成 ${corrections} 条纠错提案（待人审）`, true));
   if (quarantines > 0)
-    toolCalls.push(tool("quarantine_writer", "异常处置写入", `${quarantines} 行硬异常`, `写入 ${quarantines} 条 quarantine_item(in_disposal)`, true));
+    toolCalls.push(tool("quarantine_writer", "异常处置写入", `${quarantines} 行硬异常`, `登记 ${quarantines} 条异常处置单（处置中）`, true));
   if (approvals > 0)
-    toolCalls.push(tool("approval_router", "核验任务路由", `${approvals} 行需业务核验`, `写入 ${approvals} 条 release_approval(pending)`, true));
-  toolCalls.push(tool("replay_builder", "回放组装", `run=${runId}`, "replay_timeline 已组装", true));
+    toolCalls.push(tool("approval_router", "核验任务路由", `${approvals} 行需业务核验`, `下发 ${approvals} 条业务核验任务（待办）`, true));
+  toolCalls.push(tool("replay_builder", "回放组装", `run=${runId}`, "全程回放时间线已组装", true));
 
   replay.push({
     phase: "tools",
@@ -449,7 +449,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   replay.push({
     phase: "mutate",
     title: "mutate 状态变更",
-    detail: `写入 ${issues} 条 row_issue（纠错 ${corrections} · 异常处置 ${quarantines} · 核验 ${approvals}）；governance_state ${beforeState} → ${state}。`,
+    detail: `写入 ${issues} 条问题台账（纠错 ${corrections} · 异常处置 ${quarantines} · 核验 ${approvals}）；批次治理状态 ${beforeState} → ${state}。`,
     at: tNow(),
     ok: true,
   });
@@ -465,7 +465,7 @@ export async function runReleaseGateAgent(input: RunInput): Promise<RunResult> {
   replay.push({
     phase: "verify",
     title: "verify 验证",
-    detail: `重新读取治理状态：${verified?.state}；${clean} 行可落地、${issues} 行进入闭环，证据已持久化（agent_run + row_issue + replay_timeline）。`,
+    detail: `重新读取治理状态：${verified?.state}；${clean} 行可落地、${issues} 行进入闭环，全过程证据已留痕、可逐条回放。`,
     at: tNow(),
     ok: verified?.state === state,
   });

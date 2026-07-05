@@ -270,7 +270,7 @@ export function runWorkspaceTools(
         before_value: row.item_code,
         after_value: code,
         status: "applied",
-        reason: "命中价格目录高置信别名，先按标准编码生成修复 patch。",
+        reason: "命中价格目录高置信别名，先按标准编码自动修复。",
         confidence: 0.94,
       });
     }

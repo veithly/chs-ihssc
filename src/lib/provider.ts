@@ -316,7 +316,7 @@ export async function generateWorkspacePlan(
         ? steps
         : [
             { key: "field_mapping", label: "字段映射", reason: "先确认数据可比口径。" },
-            { key: "repair", label: "数据修复", reason: "能确定的字段和编码先生成修复 patch。" },
+            { key: "repair", label: "数据修复", reason: "能确定的字段和编码先自动修复。" },
             { key: "workflow", label: "流程任务", reason: "不能自动处置的项转人工确认。" },
           ],
       answer: String(parsed.answer ?? "").slice(0, 1200),
